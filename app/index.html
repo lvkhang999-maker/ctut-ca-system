@@ -1,3 +1,4 @@
+<!-- app/index.html -->
 <!DOCTYPE html>
 <html lang="vi">
 <head>
@@ -62,6 +63,7 @@
         </div>
 
         <div class="tab-content" id="pkiTabsContent">
+            <!-- TAB 1: KÝ SỐ WIZARD -->
             <div class="tab-pane fade show active" id="sign" role="tabpanel">
                 <div class="row justify-content-center">
                     <div class="col-12 col-lg-8">
@@ -115,6 +117,7 @@
                 </div>
             </div>
 
+            <!-- TAB 2: THẨM ĐỊNH CÔNG KHAI -->
             <div class="tab-pane fade" id="verify" role="tabpanel">
                 <div class="row justify-content-center">
                     <div class="col-12 col-md-11 col-lg-10">
@@ -185,11 +188,13 @@
                 </div>
             </div>
 
+            <!-- TAB 3: CỔNG QUẢN TRỊ -->
             <div class="tab-pane fade" id="admin" role="tabpanel">
                 <div class="row justify-content-center">
                     <div class="col-12 col-lg-12">
                         <div class="card card-custom p-4 p-md-5">
                             
+                            <!-- LOGIN PANEL -->
                             <div id="admin_login_panel" class="text-center mx-auto" style="max-width: 450px;">
                                 <i class="fa-solid fa-user-lock text-danger display-4 mb-3"></i>
                                 <h4 class="fw-bold text-dark mb-2">Cổng Quản Trị Hạ Tầng Mật Mã</h4>
@@ -210,6 +215,7 @@
                                 <div id="admin_auth_result" class="mt-3"></div>
                             </div>
 
+                            <!-- MAIN WORKSPACE -->
                             <div id="admin_main_panel" class="d-none">
                                 <div class="alert alert-success border-0 rounded-3 mb-4 small fw-bold d-flex justify-content-between align-items-center flex-wrap gap-2">
                                     <span><i class="fa-solid fa-circle-check me-2"></i>Trạng thái phiên làm việc: <span class="badge bg-danger fs-6" id="txt_admin_role_badge">ADMIN</span></span>
@@ -220,6 +226,7 @@
                                 </div>
                                 
                                 <div class="row g-4">
+                                    <!-- CỘT TRÁI -->
                                     <div class="col-12 col-xl-7">
                                         <div class="card border border-light p-3 rounded-3 h-100 bg-light">
                                             
@@ -232,6 +239,7 @@
                                                 <button onclick="refreshCurrentAdminViewTable()" class="btn btn-white btn-sm border bg-white shadow-sm rounded-2"><i class="fa-solid fa-arrow-rotate-right"></i></button>
                                             </div>
                                             
+                                            <!-- BẢNG 1: GIẢNG VIÊN -->
                                             <div id="wrapper_table_teachers" class="table-responsive">
                                                 <table class="table table-hover border bg-white align-middle m-0" style="font-size: 13.5px;">
                                                     <thead class="table-secondary">
@@ -248,6 +256,7 @@
                                                 </table>
                                             </div>
 
+                                            <!-- BẢNG 2: BAN QUẢN TRỊ -->
                                             <div id="wrapper_table_admins" class="table-responsive d-none">
                                                 <table class="table table-hover border bg-white align-middle m-0" style="font-size: 13.5px;">
                                                     <thead class="table-dark">
@@ -263,6 +272,7 @@
                                                 </table>
                                             </div>
 
+                                            <!-- BẢNG 3: NHẬT KÝ HỆ THỐNG ĐỘC QUYỀN -->
                                             <div id="wrapper_table_audit" class="table-responsive d-none">
                                                 <table class="table table-hover border bg-white align-middle m-0" style="font-size: 13.5px;">
                                                     <thead class="table-warning text-dark">
@@ -282,6 +292,7 @@
                                         </div>
                                     </div>
                                     
+                                    <!-- CỘT PHẢI -->
                                     <div class="col-12 col-xl-5">
                                         <div id="admin_create_card" class="card border p-4 rounded-3 shadow-sm bg-white h-100">
                                             <h5 class="fw-bold text-success mb-4"><i class="fa-solid fa-user-plus me-2"></i>Cấp Phát Chứng Thư Số Mới</h5>
@@ -504,7 +515,6 @@
             renderLogTable();
         }
 
-        // FIXED: ĐIỀU PHỐI SUB-TAB 3 SẮC THÁI MỚI (TÁCH BIỆT LOG HẠ TẦNG)
         function switchAdminTableData(targetSubTable) {
             activeAdminSubTable = targetSubTable;
             const btnTeachers = document.getElementById("sub_tab_teachers");
@@ -515,7 +525,6 @@
             const wrapperAdmins = document.getElementById("wrapper_table_admins");
             const wrapperAudit = document.getElementById("wrapper_table_audit");
 
-            // Khôi phục class mặc định
             btnTeachers.className = "btn btn-white text-secondary fw-bold rounded-2 px-2 border-0";
             btnAdmins.className = "btn btn-white text-secondary fw-bold rounded-2 px-2 border-0";
             btnAudit.className = "btn btn-white text-secondary fw-bold rounded-2 px-2 border-0";
@@ -535,7 +544,7 @@
             } else if (targetSubTable === "AUDIT") {
                 btnAudit.className = "btn btn-warning text-dark fw-bold rounded-2 px-2";
                 wrapperAudit.classList.remove("d-none");
-                loadAdminAuditHistoryList(); // Gọi nạp log độc quyền
+                loadAdminAuditHistoryList();
             }
         }
 
@@ -566,6 +575,7 @@
             } catch (e) { tbody.innerHTML = `<tr><td colspan="4" class="text-center text-danger py-3">Lỗi kết nối hạ tầng mạng.</td></tr>`; }
         }
 
+        // FIXED: Đồng bộ hóa chính xác tên hàm executeToggleAdminActive trùng khớp với lời gọi lệnh
         async function loadAdminRolesList() {
             const tbody = document.getElementById("admin_roles_table_body");
             const admin_user = document.getElementById("admin_username").value;
@@ -598,7 +608,6 @@
             } catch (e) { tbody.innerHTML = `<tr><td colspan="3" class="text-center text-danger py-3">Lỗi nghẽn đường truyền cơ sở dữ liệu.</td></tr>`; }
         }
 
-        // FIXED: HÀM ĐỔ DỮ LIỆU LOG HẠ TẦNG VÀO SUB-TAB ĐỘC QUYỀN TRÊN UI
         async function loadAdminAuditHistoryList() {
             const tbody = document.getElementById("admin_audit_table_body");
             const admin_user = document.getElementById("admin_username").value;
@@ -624,10 +633,15 @@
             } catch (e) { tbody.innerHTML = `<tr><td colspan="4" class="text-center text-danger py-3">Lỗi nghẽn luồng đọc DB.</td></tr>`; }
         }
 
-        async function executeToggleActive(targetUid) {
+        // FIXED: Đồng bộ hóa chính xác tên hàm executeToggleAdminActive
+        async function executeToggleAdminActive(targetUid) {
             const admin_user = document.getElementById("admin_username").value;
             const admin_pass = document.getElementById("admin_password").value;
-            if (admin_user === targetUid) { alert("Hệ thống bảo mật từ chối lệnh tự vô hiệu hóa tài khoản chính mình!"); return; }
+            
+            if (admin_user === targetUid) {
+                alert("Hệ thống bảo mật từ chối lệnh tự vô hiệu hóa tài khoản chính mình!");
+                return;
+            }
             if (!confirm(`Bạn có chắc chắn muốn thay đổi trạng thái hoạt động của tài khoản quản trị '${targetUid}'?`)) return;
 
             const formData = new FormData();

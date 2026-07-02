@@ -64,7 +64,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Hệ thống Hạ tầng Chữ ký số nội bộ CTUT", 
     description="Sản phẩm Nghiên cứu Khoa học - Trung tâm Chuyển đổi số trường ĐH KT-CN Cần Thơ",
-    version="2.6.5",
+    version="2.6.8",
     lifespan=lifespan
 )
 
@@ -83,7 +83,7 @@ def verify_admin_privilege(username, password, required_role=None):
         return user["role"]
 
 # =========================================================================
-# TRỤC ĐIỀU PHỐI API GATEWAY CHUẨN HÓA QUERY PARAMETERS
+# TRỤC ĐIỀU PHỐI API GATEWAY
 # =========================================================================
 
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)
@@ -117,7 +117,7 @@ async def admin_toggle_active(
         new_status = 0 if target["is_active"] == 1 else 1
         cursor.execute("UPDATE admin_roles SET is_active = ? WHERE username = ?", (new_status, target_user))
         
-        status_txt = "VÔ HIỆ HÓA" if new_status == 0 else "KÍCH HOẠT LẠI"
+        status_txt = "VÔ HIỆU HÓA" if new_status == 0 else "KÍCH HOẠT LẠI"
         cursor.execute("""
             INSERT INTO verification_logs (timestamp, filename, status, signer, client_ip)
             VALUES (?, 'Hạ tầng hệ thống', ?, ?, '127.0.0.1')
@@ -155,7 +155,6 @@ async def admin_assign_role(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# FIXED: Ép kiểu dữ liệu Query tường minh cho API Lịch sử Audit hệ thống
 @app.get("/api/v1/admin/audit-history")
 async def get_admin_audit_history(
     admin_user: str = Query(...), 
@@ -193,7 +192,6 @@ async def register_user(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# FIXED: Ép kiểu dữ liệu Query tường minh cho API Danh sách Giảng viên
 @app.get("/api/v1/admin/users")
 async def admin_list_users(
     admin_user: str = Query(...), 
@@ -226,7 +224,6 @@ async def admin_list_users(
                 pass
     return users_list
 
-# FIXED: Ép kiểu dữ liệu Query tường minh cho API Danh sách Ban Quản Trị
 @app.get("/api/v1/admin/roles-list")
 async def admin_list_roles(
     admin_user: str = Query(...), 
@@ -263,7 +260,6 @@ async def admin_update_user(
         with open(cert_path, "rb") as f:
             old_cert = x509.load_pem_x509_certificate(f.read())
         pub_key = old_cert.public_key()
-        
         with open(root_key_path, "rb") as f:
             root_key = serialization.load_pem_private_key(f.read(), password=None)
         with open(root_cert_path, "rb") as f:
@@ -275,7 +271,6 @@ async def admin_update_user(
             x509.NameAttribute(NameOID.COMMON_NAME, new_common_name),
             x509.NameAttribute(NameOID.USER_ID, user_id)
         ])
-        
         now = datetime.datetime.now(datetime.timezone.utc)
         new_cert = (
             x509.CertificateBuilder()
@@ -294,10 +289,8 @@ async def admin_update_user(
             .add_extension(x509.SubjectAlternativeName([x509.RFC822Name(new_email)]), critical=False)
             .sign(root_key, hashes.SHA256())
         )
-        
         with open(cert_path, "wb") as f:
             f.write(new_cert.public_bytes(serialization.Encoding.PEM))
-            
         return {"status": "success", "message": f"Hệ thống: Đã cập nhật và tái ký chứng thư thành công cho tài khoản {user_id}."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -321,16 +314,13 @@ async def request_signing_otp(user_id: str = Form(...), password: str = Form(...
 async def sign_document_with_otp(user_id: str = Form(...), password: str = Form(...), otp: str = Form(...), file: UploadFile = File(...)):
     if not AuthEngine.verify_otp(user_id, otp):
         raise HTTPException(status_code=400, detail="Mã OTP sai hoặc đã hết hạn.")
-        
     temp_dir = os.path.join(PROJECT_ROOT, "temp")
     os.makedirs(temp_dir, exist_ok=True)
     input_path = os.path.join(temp_dir, f"in_{file.filename}")
     output_filename = f"signed_{file.filename}"
     output_path = os.path.join(temp_dir, output_filename)
-    
     with open(input_path, "wb") as f:
         f.write(await file.read())
-        
     try:
         PDFEngine.sign_pdf(user_id, password, input_path, output_path)
         return {"status": "success", "filename": output_filename, "message": "Ký số văn bản hoàn tất."}
@@ -349,7 +339,6 @@ async def verify_document(request: Request, file: UploadFile = File(...)):
     temp_dir = os.path.join(PROJECT_ROOT, "temp")
     os.makedirs(temp_dir, exist_ok=True)
     file_path = os.path.join(temp_dir, f"check_{file.filename}")
-    
     with open(file_path, "wb") as f:
         f.write(await file.read())
         
@@ -368,7 +357,6 @@ async def verify_document(request: Request, file: UploadFile = File(...)):
     else:
         is_valid = result_data.get("valid", False)
         is_intact = result_data.get("intact", False)
-        
         if is_valid and is_intact:
             status_code = "VALID"
             status_str = "Chữ ký hợp lệ - Toàn vẹn dữ liệu"
