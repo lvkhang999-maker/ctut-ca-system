@@ -3,16 +3,12 @@ import os
 import sys
 import sqlite3
 import datetime
-import nest_asyncio
 from fastapi import FastAPI, HTTPException, Form, UploadFile, File, Request
 from fastapi.responses import HTMLResponse, FileResponse
 from contextlib import asynccontextmanager
 from cryptography import x509
 from cryptography.x509.oid import NameOID
 from cryptography.hazmat.primitives import hashes, serialization
-
-# Vá lỗi lồng luồng xử lý Event Loop cho Động cơ mật mã
-nest_asyncio.apply()
 
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(CURRENT_DIR)
@@ -24,7 +20,7 @@ from app.core.pki_engine import PKIEngine
 from app.core.pdf_engine import PDFEngine
 from app.core.auth_engine import AuthEngine
 
-# Đường dẫn DB và thư mục lưu trữ khóa nằm ngoài phân vùng app/
+# Đường dẫn DB và thư mục lưu trữ khóa
 DB_DIR = os.path.join(PROJECT_ROOT, "storage", "db")
 DB_PATH = os.path.join(DB_DIR, "audit_logs.db")
 USER_STORAGE = os.path.join(PROJECT_ROOT, "storage", "users")
@@ -35,7 +31,6 @@ def init_audit_db():
     with sqlite3.connect(DB_PATH) as conn:
         cursor = conn.cursor()
         conn.execute("PRAGMA journal_mode=DELETE;")
-        # 1. Bảng lưu lịch sử thẩm định tệp tin PDF
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS verification_logs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -46,7 +41,6 @@ def init_audit_db():
                 client_ip TEXT
             )
         """)
-        # 2. Bảng lưu trữ và phân tách vai trò quản trị (RBAC Management)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS admin_roles (
                 username TEXT PRIMARY KEY,
@@ -54,8 +48,6 @@ def init_audit_db():
                 role TEXT
             )
         """)
-        
-        # Khởi tạo mặc định 2 tài khoản quản trị cốt lõi nếu chưa tồn tại
         cursor.execute("INSERT OR IGNORE INTO admin_roles VALUES ('superadmin', 'ctut@2026', 'SUPER_ADMIN')")
         cursor.execute("INSERT OR IGNORE INTO admin_roles VALUES ('admincds', '123456', 'ADMIN')")
         conn.commit()
@@ -65,15 +57,15 @@ async def lifespan(app: FastAPI):
     init_audit_db()
     yield
 
+# ĐÃ LOẠI BỎ HOÀN TOÀN LỆNH NEST_ASYNCIO ĐỂ TRIỆT TIÊU BUG LỆCH TASK CONTEXT
 app = FastAPI(
     title="Hệ thống Hạ tầng Chữ ký số nội bộ CTUT", 
     description="Sản phẩm Nghiên cứu Khoa học - Trung tâm Chuyển đổi số",
-    version="2.4.0",
+    version="2.5.0",
     lifespan=lifespan
 )
 
 def verify_admin_privilege(username, password, required_role=None):
-    """Hàm nội bộ xác thực danh tính quản trị từ Database SQLite"""
     with sqlite3.connect(DB_PATH) as conn:
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
@@ -81,17 +73,16 @@ def verify_admin_privilege(username, password, required_role=None):
         user = cursor.fetchone()
         if not user:
             raise HTTPException(status_code=403, detail="Sai thông tin tài khoản hoặc mật khẩu quản trị.")
-        
         if required_role == "SUPER_ADMIN" and user["role"] != "SUPER_ADMIN":
             raise HTTPException(status_code=403, detail="Thao tác thất bại. Tính năng này yêu cầu đặc quyền Super Admin.")
         return user["role"]
 
 # =========================================================================
-# TRỤC ĐIỀU PHỐI API GATEWAY & PHÂN QUYỀN TỐI CAO
+# NÂNG CẤP KIẾN TRÚC: CHUYỂN TOÀN BỘ SANG ASYNC DEF ĐỂ BỎ QUA ANYIO THREADPOOL
 # =========================================================================
 
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)
-def get_portal_interface():
+async def get_portal_interface():
     html_path = os.path.join(CURRENT_DIR, "index.html")
     if os.path.exists(html_path):
         with open(html_path, "r", encoding="utf-8") as f:
@@ -99,7 +90,7 @@ def get_portal_interface():
     return "<h3>Hệ thống đang khởi tạo giao diện Front-end...</h3>"
 
 @app.post("/api/v1/admin/assign-role")
-def admin_assign_role(
+async def admin_assign_role(
     target_user: str = Form(...),
     target_pass: str = Form(...),
     assigned_role: str = Form(...),
@@ -128,7 +119,7 @@ def admin_assign_role(
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/v1/user/register")
-def register_user(
+async def register_user(
     user_id: str = Form(...), 
     password: str = Form(...), 
     common_name: str = Form(...), 
@@ -144,7 +135,7 @@ def register_user(
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/v1/admin/users")
-def admin_list_users(admin_user: str, admin_pass: str):
+async def admin_list_users(admin_user: str, admin_pass: str):
     verify_admin_privilege(admin_user, admin_pass)
     
     users_list = []
@@ -177,7 +168,7 @@ def admin_list_users(admin_user: str, admin_pass: str):
     return users_list
 
 @app.post("/api/v1/admin/update-user")
-def admin_update_user(
+async def admin_update_user(
     user_id: str = Form(...),
     new_common_name: str = Form(...),
     new_email: str = Form(...),
@@ -236,7 +227,7 @@ def admin_update_user(
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/v1/pdf/request-signing-otp")
-def request_signing_otp(user_id: str = Form(...), password: str = Form(...)):
+async def request_signing_otp(user_id: str = Form(...), password: str = Form(...)):
     key_path = os.path.join(PROJECT_ROOT, "storage", "users", f"{user_id}_private.pem")
     if not os.path.exists(key_path):
         raise HTTPException(status_code=404, detail="Tài khoản người dùng không tồn tại.")
@@ -271,7 +262,7 @@ async def sign_document_with_otp(user_id: str = Form(...), password: str = Form(
         raise HTTPException(status_code=400, detail=str(e))
 
 @app.get("/api/v1/pdf/download/{filename}")
-def download_file(filename: str):
+async def download_file(filename: str):
     file_path = os.path.join(PROJECT_ROOT, "temp", filename)
     if not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="Tệp văn bản không tồn tại.")
@@ -327,12 +318,17 @@ async def verify_document(request: Request, file: UploadFile = File(...)):
         pass
         
     return {
-        "status": "success", "code": status_code, "status_text": status_str,
-        "result": {"signer": signer_str, "summary": status_str}
+        "status": "success", 
+        "code": status_code, 
+        "status_text": status_str,
+        "result": {
+            "signer": signer_str,
+            "summary": status_str
+        }
     }
 
 @app.get("/api/v1/pdf/verify-history")
-def get_verification_history():
+async def get_verification_history():
     try:
         with sqlite3.connect(DB_PATH) as conn:
             conn.row_factory = sqlite3.Row
@@ -343,7 +339,6 @@ def get_verification_history():
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# VÁ LỖI IM LẶNG: Chuyển đổi cơ chế gọi app trực tiếp để chạy độc lập an toàn tuyệt đối
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="127.0.0.1", port=8000)
