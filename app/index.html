@@ -878,6 +878,7 @@
         }
 
         // FIXED: Đồng bộ hóa chính xác tên hàm executeToggleAdminActive
+        // Thay thế hàm executeToggleAdminActive cũ bằng mã này
         async function executeToggleAdminActive(targetUid) {
             const admin_user = document.getElementById("admin_username").value;
             const admin_pass = document.getElementById("admin_password").value;
@@ -886,19 +887,33 @@
                 alert("Hệ thống bảo mật từ chối lệnh tự vô hiệu hóa tài khoản chính mình!");
                 return;
             }
+
             if (!confirm(`Bạn có chắc chắn muốn thay đổi trạng thái hoạt động của tài khoản quản trị '${targetUid}'?`)) return;
 
             const formData = new FormData();
+            // Tên field phải khớp chính xác với Form(...) trong Python
             formData.append("target_user", targetUid);
             formData.append("admin_user", admin_user);
             formData.append("admin_pass", admin_pass);
 
             try {
-                const res = await fetch(`${API_BASE}/admin/toggle-active`, { method: "POST", body: formData });
+                const res = await fetch(`${API_BASE}/admin/toggle-active`, {
+                    method: "POST",
+                    body: formData
+                });
+
                 const data = await res.json();
-                if (res.ok) { alert(data.message); loadAdminRolesList(); }
-                else { alert(`Từ chối lệnh: ${data.detail}`); }
-            } catch (e) { alert("Lỗi nghẽn đường truyền bảo mật."); }
+                if (res.ok) {
+                    alert(data.message);
+                    // Sau khi thành công thì nạp lại bảng
+                    loadAdminRolesList();
+                } else {
+                    alert(`Từ chối lệnh: ${data.detail || 'Lỗi không xác định'}`);
+                }
+            } catch (e) {
+                alert("Lỗi kết nối mạng!");
+                console.error(e);
+            }
         }
 
         function openEditUser(uid, currentName, currentEmail) {
