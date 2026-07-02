@@ -1,3 +1,4 @@
+<!-- app/index.html -->
 <!DOCTYPE html>
 <html lang="vi">
 <head>
@@ -62,6 +63,7 @@
         </div>
 
         <div class="tab-content" id="pkiTabsContent">
+            <!-- TAB 1: KÝ SỐ WIZARD -->
             <div class="tab-pane fade show active" id="sign" role="tabpanel">
                 <div class="row justify-content-center">
                     <div class="col-12 col-lg-8">
@@ -115,6 +117,7 @@
                 </div>
             </div>
 
+            <!-- TAB 2: THẨM ĐỊNH CÔNG KHAI -->
             <div class="tab-pane fade" id="verify" role="tabpanel">
                 <div class="row justify-content-center">
                     <div class="col-12 col-md-11 col-lg-10">
@@ -186,11 +189,13 @@
                 </div>
             </div>
 
+            <!-- TAB 3: CỔNG QUẢN TRỊ -->
             <div class="tab-pane fade" id="admin" role="tabpanel">
                 <div class="row justify-content-center">
                     <div class="col-12 col-lg-12">
                         <div class="card card-custom p-4 p-md-5">
                             
+                            <!-- LOGIN PANEL -->
                             <div id="admin_login_panel" class="text-center mx-auto" style="max-width: 450px;">
                                 <i class="fa-solid fa-user-lock text-danger display-4 mb-3"></i>
                                 <h4 class="fw-bold text-dark mb-2">Cổng Quản Trị Hạ Tầng Mật Mã</h4>
@@ -209,6 +214,7 @@
                                 <div id="admin_auth_result" class="mt-3"></div>
                             </div>
 
+                            <!-- MAIN WORKSPACE -->
                             <div id="admin_main_panel" class="d-none">
                                 <div class="alert alert-success border-0 rounded-3 mb-4 small fw-bold d-flex justify-content-between align-items-center flex-wrap gap-2">
                                     <span><i class="fa-solid fa-circle-check me-2"></i>Trạng thái phiên làm việc: <span class="badge bg-danger fs-6" id="txt_admin_role_badge">ADMIN</span></span>
@@ -230,6 +236,7 @@
                                                 <button onclick="refreshCurrentAdminViewTable()" class="btn btn-white btn-sm border bg-white shadow-sm rounded-2"><i class="fa-solid fa-arrow-rotate-right"></i></button>
                                             </div>
                                             
+                                            <!-- BẢNG 1: GIẢNG VIÊN -->
                                             <div id="wrapper_table_teachers" class="table-responsive">
                                                 <table class="table table-hover border bg-white align-middle m-0" style="font-size: 13.5px;">
                                                     <thead class="table-secondary">
@@ -246,13 +253,14 @@
                                                 </table>
                                             </div>
 
+                                            <!-- BẢNG 2: BAN QUẢN TRỊ -->
                                             <div id="wrapper_table_admins" class="table-responsive d-none">
                                                 <table class="table table-hover border bg-white align-middle m-0" style="font-size: 13.5px;">
                                                     <thead class="table-dark">
                                                         <tr>
                                                             <th>Tài khoản Quản trị ID</th>
-                                                            <th>Cấp bậc đặc quyền mật mã</th>
-                                                            <th class="text-center">Trạng thái hạ tầng</th>
+                                                            <th>Cấp bậc đặc quyền</th>
+                                                            <th class="text-center">Thao tác lệnh</th>
                                                         </tr>
                                                     </thead>
                                                     <tbody id="admin_roles_table_body">
@@ -266,7 +274,7 @@
                                     
                                     <div class="col-12 col-xl-5">
                                         <div id="admin_create_card" class="card border p-4 rounded-3 shadow-sm bg-white h-100">
-                                            <h5 class="fw-bold text-success mb-4"><i class="fa-solid fa-user-plus me-2"></i>Cấp Phát Chứng Thư Số Mới</h5>
+                                            <h5 class="fw-bold text-success mb-4"><i class="fa-solid fa-user-plus me-2"></i>Cấp Phát Chứng Thư Số Mới</h5>
                                             <div id="admin_create_restriction_msg" class="alert alert-warning small fw-bold d-none">
                                                 <i class="fa-solid fa-lock me-1"></i> Chức năng cấp chứng thư mới bị khóa. Yêu cầu tài khoản cấp bậc Super Admin.
                                             </div>
@@ -319,7 +327,7 @@
     <script>
         const API_BASE = "/api/v1";
         let CURRENT_LOGGED_ROLE = "ADMIN";
-        let activeAdminSubTable = "TEACHERS"; // Quản lý trạng thái bảng Admin hiện tại
+        let activeAdminSubTable = "TEACHERS";
 
         let rawLogDataset = [];
         let processedLogDataset = [];
@@ -335,6 +343,7 @@
             else { input.type = "password"; icon.className = "fa-solid fa-eye"; }
         }
 
+        // BIỆN PHÁP NÂNG CẤP: BỘ TỰ ĐỘNG KHÔI PHỤC PHIÊN LÀM VIỆC KHI RELOAD TRANG
         document.addEventListener("DOMContentLoaded", () => {
             const tabButtons = document.querySelectorAll('#pkiTabs button');
             tabButtons.forEach(button => {
@@ -348,6 +357,15 @@
                 });
             });
             fetchHistoryFromServer();
+
+            // Thực thi quét bộ nhớ cục bộ khôi phục phiên
+            const savedUser = localStorage.getItem("ctut_session_user");
+            const savedPass = localStorage.getItem("ctut_session_pass");
+            if (savedUser && savedPass) {
+                document.getElementById("admin_username").value = savedUser;
+                document.getElementById("admin_password").value = savedPass;
+                unlockAdminPanel(); // Tự động mở khóa giao diện bảo mật
+            }
         });
 
         function showResult(divId, type, message) {
@@ -414,10 +432,6 @@
             element.classList.toggle("expanded-text");
         }
 
-        document.getElementById("log_search").addEventListener("keypress", function(e) {
-            if (e.key === "Enter") e.preventDefault();
-        });
-
         function renderLogTable() {
             const tbody = document.getElementById("history_table_body");
             const totalRecords = processedLogDataset.length;
@@ -440,7 +454,7 @@
                 let badgeClass = "bg-success";
                 if (log.status.includes("vi phạm") || log.status.includes("BỊ CHỈNH SỬA")) badgeClass = "bg-danger";
                 if (log.status.includes("thuần túy") || log.status.includes("Unsigned")) badgeClass = "bg-warning text-dark";
-                if (log.status.includes("ỦY QUYỀN")) badgeClass = "bg-dark text-white";
+                if (log.status.includes("ỦY QUYỀN") || log.status.includes("TRẠNG THÁI")) badgeClass = "bg-dark text-white";
 
                 return `
                     <tr>
@@ -483,11 +497,6 @@
             renderLogTable();
         }
 
-        // =========================================================================
-        // PHÂN HỆ QUẢN LÝ DANH SÁCH THỰC THỂ PHÍA CLIENT (ĐA NHIỆM SUB-VIEWS)
-        // =========================================================================
-        
-        // FIXED: Thêm chức năng chuyển đổi Sub-view Table mượt mà giữa Giảng viên và Admin
         function switchAdminTableData(targetSubTable) {
             activeAdminSubTable = targetSubTable;
             const btnTeachers = document.getElementById("sub_tab_teachers");
@@ -506,7 +515,7 @@
                 btnAdmins.className = "btn btn-dark fw-bold rounded-2 px-3";
                 wrapperTeachers.classList.add("d-none");
                 wrapperAdmins.classList.remove("d-none");
-                loadAdminRolesList(); // Nạp danh sách Admin hệ thống
+                loadAdminRolesList();
             }
         }
 
@@ -536,7 +545,7 @@
             } catch (e) { tbody.innerHTML = `<tr><td colspan="4" class="text-center text-danger py-3">Lỗi kết nối hạ tầng mạng.</td></tr>`; }
         }
 
-        // FIXED: Thêm hàm gọi API nạp và in danh sách Ban Quản Trị lên bảng
+        // NÂNG CẤP: Nạp danh sách kèm theo nút Tắt/Mở hoạt động tuân thủ Luật Bảo mật chéo
         async function loadAdminRolesList() {
             const tbody = document.getElementById("admin_roles_table_body");
             const admin_user = document.getElementById("admin_username").value;
@@ -548,15 +557,56 @@
                 tbody.innerHTML = admins.map(adm => {
                     const isSuper = adm.role === "SUPER_ADMIN";
                     const badgeRole = isSuper ? "bg-danger" : "bg-primary";
-                    const labelRole = isSuper ? "Quản trị tối cao (Super Admin)" : "Cán bộ hỗ trợ (RA Officer)";
+                    const labelRole = isSuper ? "Super Admin" : "RA Officer";
+                    
+                    // Thiết lập trạng thái nút bấm linh hoạt
+                    const isActive = adm.is_active === 1 || adm.is_active === null;
+                    const btnClass = isActive ? "btn-outline-danger" : "btn-success";
+                    const btnIcon = isActive ? "fa-user-slash" : "fa-user-check";
+                    const btnText = isActive ? "Vô hiệu" : "Kích hoạt";
+                    
                     return `
                         <tr>
                             <td class="fw-bold text-dark"><i class="fa-solid fa-user-gear me-2 text-secondary"></i>${adm.username}</td>
                             <td><span class="badge ${badgeRole}">${labelRole}</span></td>
-                            <td class="text-center"><span class="badge bg-light text-success border border-success fw-bold"><i class="fa-solid fa-circle-dot me-1"></i>Active</span></td>
+                            <td class="text-center">
+                                <button onclick="executeToggleAdminActive('${adm.username}')" class="btn btn-sm ${btnClass} fw-bold px-2 py-1">
+                                    <i class="fa-solid ${btnIcon} me-1"></i>${btnText}
+                                </button>
+                            </td>
                         </tr>`;
                 }).join("");
             } catch (e) { tbody.innerHTML = `<tr><td colspan="3" class="text-center text-danger py-3">Lỗi nghẽn đường truyền cơ sở dữ liệu.</td></tr>`; }
+        }
+
+        // THỰC THI GỌI API ĐẢO TRẠNG THÁI HOẠT ĐỘNG
+        async function executeToggleAdminActive(targetUid) {
+            const admin_user = document.getElementById("admin_username").value;
+            const admin_pass = document.getElementById("admin_password").value;
+            
+            // Chặn ngay ở Front-end nếu tự nhấn vào chính mình
+            if (admin_user === targetUid) {
+                alert("Hệ thống bảo mật từ chối lệnh tự vô hiệu hóa tài khoản chính mình!");
+                return;
+            }
+
+            if (!confirm(`Bạn có chắc chắn muốn thay đổi trạng thái hoạt động của tài khoản quản trị '${targetUid}'?`)) return;
+
+            const formData = new FormData();
+            formData.append("target_user", targetUid);
+            formData.append("admin_user", admin_user);
+            formData.append("admin_pass", admin_pass);
+
+            try {
+                const res = await fetch(`${API_BASE}/admin/toggle-active`, { method: "POST", body: formData });
+                const data = await res.json();
+                if (res.ok) {
+                    alert(data.message);
+                    loadAdminRolesList(); // Nạp lại bảng lập tức
+                } else {
+                    alert(`Từ chối lệnh: ${data.detail}`);
+                }
+            } catch (e) { alert("Lỗi nghẽn đường truyền bảo mật."); }
         }
 
         function openEditUser(uid, currentName, currentEmail) {
@@ -606,7 +656,7 @@
             formData.append("admin_pass", document.getElementById("admin_password").value);
 
             try {
-                const res = await fetch(`${API_BASE}/admin/update-user`, { method: "POST", body: formData });
+                const res = await fetch(`${API_BASE}/update-user`, { method: "POST", body: formData });
                 const data = await res.json();
                 if (res.ok) {
                     showResult("edit_user_result", "success", data.message);
@@ -635,7 +685,7 @@
                     showResult("priv_result", "success", data.message);
                     document.getElementById("priv_user").value = "";
                     document.getElementById("priv_pass").value = "";
-                    if (activeAdminSubTable === "ADMINS") loadAdminRolesList(); // Đổ lại danh sách Admin lập tức
+                    if (activeAdminSubTable === "ADMINS") loadAdminRolesList();
                 } else { showResult("priv_result", "danger", `Lỗi: ${data.detail}`); }
             } catch (e) { showResult("priv_result", "danger", "Lỗi kết nối mạng!"); }
         }
@@ -653,6 +703,10 @@
                     document.getElementById("admin_login_panel").classList.add("d-none");
                     document.getElementById("admin_main_panel").classList.remove("d-none");
                     errDiv.innerHTML = "";
+                    
+                    // NẠP ĐỆM PHIÊN: Lưu thông tin định danh vào LocalStorage của trình duyệt
+                    localStorage.setItem("ctut_session_user", user);
+                    localStorage.setItem("ctut_session_pass", pass);
                     
                     const badge = document.getElementById("txt_admin_role_badge");
                     const superBtn = document.getElementById("btn_toggle_privilege_panel");
@@ -674,7 +728,6 @@
                         createFormFields.classList.add("d-none");
                         restrictionMsg.classList.remove("d-none");
                     }
-                    // Mặc định nạp bảng Giảng viên trước, reset nút về đúng vị trí
                     switchAdminTableData("TEACHERS");
                 } else {
                     const errData = await res.json();
@@ -684,6 +737,10 @@
         }
 
         function resetAdminView() {
+            // XÓA PHIÊN: Dọn sạch bộ nhớ cục bộ khi quản trị viên đăng xuất chủ động
+            localStorage.removeItem("ctut_session_user");
+            localStorage.removeItem("ctut_session_pass");
+
             document.getElementById("admin_login_panel").classList.remove("d-none");
             document.getElementById("admin_main_panel").classList.add("d-none");
             document.getElementById("admin_username").value = "";
@@ -694,9 +751,6 @@
             closePrivilegeCard();
         }
 
-        // =========================================================================
-        // PHÂN HỆ THẨM ĐỊNH VÀ GỌI OTP CHO CLIENT
-        // =========================================================================
         async function requestOTP() {
             const uid = document.getElementById("sign_uid").value;
             const pwd = document.getElementById("sign_pwd").value;

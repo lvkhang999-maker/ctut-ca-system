@@ -3,7 +3,6 @@ import os
 import sys
 import sqlite3
 import datetime
-import nest_asyncio
 from fastapi import FastAPI, HTTPException, Form, UploadFile, File, Request
 from fastapi.responses import HTMLResponse, FileResponse
 from contextlib import asynccontextmanager
@@ -26,6 +25,7 @@ DB_PATH = os.path.join(DB_DIR, "audit_logs.db")
 USER_STORAGE = os.path.join(PROJECT_ROOT, "storage", "users")
 
 def init_audit_db():
+    """Khởi tạo cấu trúc bảng SQLite và cập nhật thuộc tính trạng thái kích hoạt tài khoản"""
     os.makedirs(DB_DIR, exist_ok=True)
     with sqlite3.connect(DB_PATH) as conn:
         cursor = conn.cursor()
@@ -44,11 +44,19 @@ def init_audit_db():
             CREATE TABLE IF NOT EXISTS admin_roles (
                 username TEXT PRIMARY KEY,
                 password TEXT,
-                role TEXT
+                role TEXT,
+                is_active INTEGER DEFAULT 1 -- 1: Đang hoạt động, 0: Vô hiệu hóa
             )
         """)
-        cursor.execute("INSERT OR IGNORE INTO admin_roles VALUES ('superadmin', 'ctut@2026', 'SUPER_ADMIN')")
-        cursor.execute("INSERT OR IGNORE INTO admin_roles VALUES ('admincds', '123456', 'ADMIN')")
+        
+        # Vá cấu trúc nâng cấp lỗi thời cho DB hiện tại nếu có
+        try:
+            cursor.execute("ALTER TABLE admin_roles ADD COLUMN is_active INTEGER DEFAULT 1")
+        except sqlite3.OperationalError:
+            pass
+            
+        cursor.execute("INSERT OR IGNORE INTO admin_roles VALUES ('superadmin', 'ctut@2026', 'SUPER_ADMIN', 1)")
+        cursor.execute("INSERT OR IGNORE INTO admin_roles VALUES ('admincds', '123456', 'ADMIN', 1)")
         conn.commit()
 
 @asynccontextmanager
@@ -64,6 +72,7 @@ app = FastAPI(
 )
 
 def verify_admin_privilege(username, password, required_role=None):
+    """Xác thực danh tính và kiểm tra trạng thái hoạt động của tài khoản quản trị"""
     with sqlite3.connect(DB_PATH) as conn:
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
@@ -71,12 +80,17 @@ def verify_admin_privilege(username, password, required_role=None):
         user = cursor.fetchone()
         if not user:
             raise HTTPException(status_code=403, detail="Sai thông tin tài khoản hoặc mật khẩu quản trị.")
+        
+        # Chặn tài khoản đã bị vô hiệu hóa truy cập hệ thống
+        if user["is_active"] == 0:
+            raise HTTPException(status_code=403, detail="Tài khoản quản trị này đã bị vô hiệu hóa quyền truy cập.")
+            
         if required_role == "SUPER_ADMIN" and user["role"] != "SUPER_ADMIN":
             raise HTTPException(status_code=403, detail="Thao tác thất bại. Tính năng này yêu cầu đặc quyền Super Admin.")
         return user["role"]
 
 # =========================================================================
-# TRỤC ĐIỀU PHỐI API GATEWAY
+# TRỤC ĐIỀU PHỐI API GATEWAY & KIỂM SOÁT ĐẶC QUYỀN CHÉO
 # =========================================================================
 
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)
@@ -86,6 +100,44 @@ async def get_portal_interface():
         with open(html_path, "r", encoding="utf-8") as f:
             return f.read()
     return "<h3>Hệ thống đang khởi tạo giao diện Front-end...</h3>"
+
+# API CHỐNG CRASH CHÉO: Điều khiển trạng thái Hoạt động / Vô hiệu hóa tài khoản quản trị
+@app.post("/api/v1/admin/toggle-active")
+async def admin_toggle_active(
+    target_user: str = Form(...),
+    admin_user: str = Form(...),
+    admin_pass: str = Form(...)
+):
+    current_role = verify_admin_privilege(admin_user, admin_pass)
+    
+    # QUI TẮC BẢO MẬT 1: Tuyệt đối không tự khóa tài khoản chính mình
+    if admin_user == target_user:
+        raise HTTPException(status_code=400, detail="Hệ thống từ chối lệnh tự vô hiệu hóa tài khoản chính mình.")
+        
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute("SELECT role, is_active FROM admin_roles WHERE username = ?", (target_user,))
+        target = cursor.fetchone()
+        if not target:
+            raise HTTPException(status_code=404, detail="Không tìm thấy tài khoản mục tiêu.")
+            
+        # QUI TẮC BẢO MẬT 2: Admin cấp dưới không được đụng vào trạng thái của Super Admin
+        if current_role == "ADMIN" and target["role"] == "SUPER_ADMIN":
+            raise HTTPException(status_code=403, detail="Yêu cầu từ chối. Bạn không có quyền thay đổi trạng thái của Super Admin.")
+            
+        # Thực hiện đảo trạng thái kích hoạt nhị phân
+        new_status = 0 if target["is_active"] == 1 else 1
+        cursor.execute("UPDATE admin_roles SET is_active = ? WHERE username = ?", (new_status, target_user))
+        
+        status_txt = "VÔ HIỆU HÓA" if new_status == 0 else "KÍCH HOẠT LẠI"
+        cursor.execute("""
+            INSERT INTO verification_logs (timestamp, filename, status, signer, client_ip)
+            VALUES (?, 'Hạ tầng hệ thống', ?, ?, '127.0.0.1')
+        """, (datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), f"TRẠNG THÁI [{status_txt}]", target_user))
+        conn.commit()
+        
+    return {"status": "success", "message": f"Đã thực hiện {status_txt} thành công tài khoản '{target_user}'."}
 
 @app.post("/api/v1/admin/assign-role")
 async def admin_assign_role(
@@ -108,7 +160,7 @@ async def admin_assign_role(
             """, (datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), f"ỦY QUYỀN [{assigned_role}]", target_user))
             
             cursor.execute("""
-                INSERT INTO admin_roles (username, password, role) VALUES (?, ?, ?)
+                INSERT INTO admin_roles (username, password, role, is_active) VALUES (?, ?, ?, 1)
                 ON CONFLICT(username) DO UPDATE SET password=excluded.password, role=excluded.role
             """, (target_user, target_pass, assigned_role))
             conn.commit()
@@ -116,7 +168,6 @@ async def admin_assign_role(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# PHÂN HỆ PHÁT TRIỂN MỚI: API XUẤT DANH SÁCH BAN QUẢN TRỊ HỆ THỐNG
 @app.get("/api/v1/admin/roles-list")
 async def admin_list_roles(admin_user: str, admin_pass: str):
     verify_admin_privilege(admin_user, admin_pass)
@@ -124,7 +175,7 @@ async def admin_list_roles(admin_user: str, admin_pass: str):
         with sqlite3.connect(DB_PATH) as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
-            cursor.execute("SELECT username, role FROM admin_roles ORDER BY role DESC")
+            cursor.execute("SELECT username, role, is_active FROM admin_roles ORDER BY role DESC")
             rows = cursor.fetchall()
             return [dict(row) for row in rows]
     except Exception as e:
@@ -326,8 +377,13 @@ async def verify_document(request: Request, file: UploadFile = File(...)):
         pass
         
     return {
-        "status": "success", "code": status_code, "status_text": status_str,
-        "result": {"signer": signer_str, "summary": status_str}
+        "status": "success", 
+        "code": status_code, 
+        "status_text": status_str,
+        "result": {
+            "signer": signer_str,
+            "summary": status_str
+        }
     }
 
 @app.get("/api/v1/pdf/verify-history")
@@ -341,3 +397,7 @@ async def get_verification_history():
             return [dict(row) for row in rows]
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="127.0.0.1", port=8000)
