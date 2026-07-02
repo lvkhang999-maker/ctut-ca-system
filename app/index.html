@@ -1,3 +1,4 @@
+<!-- app/index.html -->
 <!DOCTYPE html>
 <html lang="vi">
 <head>
@@ -62,11 +63,13 @@
         </div>
 
         <div class="tab-content" id="pkiTabsContent">
+            <!-- TAB 1: KÝ SỐ WIZARD -->
             <div class="tab-pane fade show active" id="sign" role="tabpanel">
                 <div class="row justify-content-center">
                     <div class="col-12 col-lg-8">
                         <div class="card card-custom p-4 p-md-5">
-                            <div id="panel_step_1">
+                            <!-- FIXED: Thêm hành vi submit chặn reload trang để kích hoạt phím Enter -->
+                            <form id="panel_step_1" onsubmit="event.preventDefault(); requestOTP();">
                                 <div class="d-flex align-items-center wizard-step-header">
                                     <span class="badge bg-danger rounded-circle me-3 px-3 py-2 fs-6">1</span>
                                     <h4 class="m-0 fw-bold text-danger">Bước 1: Đăng Nhập Hệ Thống</h4>
@@ -82,10 +85,10 @@
                                         <button class="btn" type="button" onclick="togglePasswordVisibility('sign_pwd', this)"><i class="fa-solid fa-eye"></i></button>
                                     </div>
                                 </div>
-                                <button onclick="requestOTP()" id="btn_otp" class="btn btn-warning w-100 btn-action text-dark fw-bold py-3"><i class="fa-solid fa-paper-plane me-2"></i>Xác thực & Gửi OTP</button>
-                            </div>
+                                <button type="submit" id="btn_otp" class="btn btn-warning w-100 btn-action text-dark fw-bold py-3"><i class="fa-solid fa-paper-plane me-2"></i>Xác thực & Gửi OTP</button>
+                            </form>
 
-                            <div id="panel_step_2" class="d-none">
+                            <form id="panel_step_2" class="d-none" onsubmit="event.preventDefault(); executeSign();">
                                 <div class="d-flex align-items-center wizard-step-header">
                                     <span class="badge bg-success rounded-circle me-3 px-3 py-2 fs-6">2</span>
                                     <h4 class="m-0 fw-bold text-success">Bước 2: Phê Duyệt Lượt Ký Mật Mã</h4>
@@ -100,21 +103,22 @@
                                     <input type="text" id="sign_otp" class="form-control otp-input" placeholder="000000" maxlength="6">
                                 </div>
                                 <div class="row g-2">
-                                    <div class="col-4"><button onclick="backToStep1()" class="btn btn-outline-secondary w-100 btn-action py-3">Quay lại</button></div>
+                                    <div class="col-4"><button type="button" onclick="backToStep1()" class="btn btn-outline-secondary w-100 btn-action py-3">Quay lại</button></div>
                                     <div class="col-8">
-                                        <button onclick="executeSign()" id="btn_sign" class="btn btn-primary w-100 btn-action py-3" style="background-color: #0f2d59; border:none;">
+                                        <button type="submit" id="btn_sign" class="btn btn-primary w-100 btn-action py-3" style="background-color: #0f2d59; border:none;">
                                             <span id="sign_text"><i class="fa-solid fa-signature me-2"></i>KÝ SỐ ĐIỆN TỬ</span>
                                             <span id="sign_spinner" class="spinner-border spinner-border-sm d-none"></span>
                                         </button>
                                     </div>
                                 </div>
-                            </div>
+                            </form>
                             <div id="sign_result" class="mt-4"></div>
                         </div>
                     </div>
                 </div>
             </div>
 
+            <!-- TAB 2: THẨM ĐỊNH CÔNG KHAI -->
             <div class="tab-pane fade" id="verify" role="tabpanel">
                 <div class="row justify-content-center">
                     <div class="col-12 col-md-11 col-lg-10">
@@ -138,7 +142,7 @@
                                 <div class="col-12 col-md-5">
                                     <div class="input-group">
                                         <span class="input-group-text bg-white border-end-0 text-muted"><i class="fa-solid fa-magnifying-glass"></i></span>
-                                        <input type="text" id="log_search" class="form-control border-start-0 ps-0" placeholder="Tìm kiếm tên văn bản hoặc người ký..." oninput="handleLogSearchAndFilter()">
+                                        <input type="text" id="log_search" class="form-control border-start-0 ps-0" placeholder="Tìm kiếm tên văn bản hoặc người ký...">
                                     </div>
                                 </div>
                                 <div class="col-6 col-md-4">
@@ -186,29 +190,34 @@
                 </div>
             </div>
 
+            <!-- TAB 3: CỔNG QUẢN TRỊ -->
             <div class="tab-pane fade" id="admin" role="tabpanel">
                 <div class="row justify-content-center">
                     <div class="col-12 col-lg-12">
                         <div class="card card-custom p-4 p-md-5">
                             
+                            <!-- LOGIN PANEL -->
                             <div id="admin_login_panel" class="text-center mx-auto" style="max-width: 450px;">
                                 <i class="fa-solid fa-user-lock text-danger display-4 mb-3"></i>
                                 <h4 class="fw-bold text-dark mb-2">Cổng Quản Trị Hạ Tầng Mật Mã</h4>
-                                <div class="mb-3 text-start">
-                                    <label class="form-label small fw-bold text-secondary">Tài khoản Admin / Super Admin</label>
-                                    <input type="text" id="admin_username" class="form-control" placeholder="tài khoản quản trị">
-                                </div>
-                                <div class="mb-4 text-start">
-                                    <label class="form-label small fw-bold text-secondary">Mật khẩu xác thực </label>
-                                    <div class="input-group">
-                                        <input type="password" id="admin_password" class="form-control" placeholder="••••••••">
-                                        <button class="btn" type="button" onclick="togglePasswordVisibility('admin_password', this)"><i class="fa-solid fa-eye"></i></button>
+                                <form onsubmit="event.preventDefault(); unlockAdminPanel();">
+                                    <div class="mb-3 text-start">
+                                        <label class="form-label small fw-bold text-secondary">Tài khoản Admin / Super Admin</label>
+                                        <input type="text" id="admin_username" class="form-control" placeholder="superadmin hoặc admincds">
                                     </div>
-                                </div>
-                                <button onclick="unlockAdminPanel()" class="btn btn-danger btn-action w-100 py-3 fw-bold">XÁC THỰC QUYỀN HẠ TẦNG</button>
+                                    <div class="mb-4 text-start">
+                                        <label class="form-label small fw-bold text-secondary">Mật khẩu xác thực tối cao</label>
+                                        <div class="input-group">
+                                            <input type="password" id="admin_password" class="form-control" placeholder="••••••••">
+                                            <button class="btn" type="button" onclick="togglePasswordVisibility('admin_password', this)"><i class="fa-solid fa-eye"></i></button>
+                                        </div>
+                                    </div>
+                                    <button type="submit" class="btn btn-danger btn-action w-100 py-3 fw-bold">XÁC THỰC QUYỀN HẠ TẦNG</button>
+                                </form>
                                 <div id="admin_auth_result" class="mt-3"></div>
                             </div>
 
+                            <!-- MAIN WORKSPACE -->
                             <div id="admin_main_panel" class="d-none">
                                 <div class="alert alert-success border-0 rounded-3 mb-4 small fw-bold d-flex justify-content-between align-items-center flex-wrap gap-2">
                                     <span><i class="fa-solid fa-circle-check me-2"></i>Trạng thái phiên làm việc: <span class="badge bg-danger fs-6" id="txt_admin_role_badge">ADMIN</span></span>
@@ -230,6 +239,7 @@
                                                 <button onclick="refreshCurrentAdminViewTable()" class="btn btn-white btn-sm border bg-white shadow-sm rounded-2"><i class="fa-solid fa-arrow-rotate-right"></i></button>
                                             </div>
                                             
+                                            <!-- BẢNG 1: GIẢNG VIÊN -->
                                             <div id="wrapper_table_teachers" class="table-responsive">
                                                 <table class="table table-hover border bg-white align-middle m-0" style="font-size: 13.5px;">
                                                     <thead class="table-secondary">
@@ -246,6 +256,7 @@
                                                 </table>
                                             </div>
 
+                                            <!-- BẢNG 2: BAN QUẢN TRỊ -->
                                             <div id="wrapper_table_admins" class="table-responsive d-none">
                                                 <table class="table table-hover border bg-white align-middle m-0" style="font-size: 13.5px;">
                                                     <thead class="table-dark">
@@ -343,11 +354,13 @@
                     const tabTrigger = new bootstrap.Tab(this);
                     tabTrigger.show();
 
-                    // VÁ LỖI CỐT LÕI: Loại bỏ hoàn toàn lệnh resetAdminView nhầm lẫn tại đây
+                    // FIXED: Đã xóa hoàn toàn dòng lệnh resetAdminView() tại đây để bảo vệ phiên khi đổi tab
                     if (this.id === 'verify-tab') { fetchHistoryFromServer(); }
                 });
             });
-            fetchHistoryFromServer();
+            
+            // Xử lý lắng nghe phím Enter tự động trên ô tìm kiếm
+            document.getElementById("log_search").addEventListener("input", handleLogSearchAndFilter);
 
             const savedUser = localStorage.getItem("ctut_session_user");
             const savedPass = localStorage.getItem("ctut_session_pass");
@@ -356,6 +369,7 @@
                 document.getElementById("admin_password").value = savedPass;
                 unlockAdminPanel();
             }
+            fetchHistoryFromServer();
         });
 
         function showResult(divId, type, message) {
@@ -575,7 +589,6 @@
                 alert("Hệ thống bảo mật từ chối lệnh tự vô hiệu hóa tài khoản chính mình!");
                 return;
             }
-
             if (!confirm(`Bạn có chắc chắn muốn thay đổi trạng thái hoạt động của tài khoản quản trị '${targetUid}'?`)) return;
 
             const formData = new FormData();
@@ -589,9 +602,7 @@
                 if (res.ok) {
                     alert(data.message);
                     loadAdminRolesList();
-                } else {
-                    alert(`Từ chối lệnh: ${data.detail}`);
-                }
+                } else { alert(`Từ chối lệnh: ${data.detail}`); }
             } catch (e) { alert("Lỗi nghẽn đường truyền bảo mật."); }
         }
 
@@ -690,7 +701,6 @@
                     document.getElementById("admin_main_panel").classList.remove("d-none");
                     errDiv.innerHTML = "";
                     
-                    localStorage.setItem("ct_session_user", user);
                     localStorage.setItem("ctut_session_user", user);
                     localStorage.setItem("ctut_session_pass", pass);
                     
@@ -725,7 +735,6 @@
         function resetAdminView() {
             localStorage.removeItem("ctut_session_user");
             localStorage.removeItem("ctut_session_pass");
-
             document.getElementById("admin_login_panel").classList.remove("d-none");
             document.getElementById("admin_main_panel").classList.add("d-none");
             document.getElementById("admin_username").value = "";
@@ -753,17 +762,10 @@
                 if (res.ok) {
                     document.getElementById("panel_step_1").classList.add("d-none");
                     document.getElementById("panel_step_2").classList.remove("d-none");
-                    document.getElementById("txt_active_user").innerText = uid;
                     document.getElementById("sign_result").innerHTML = "";
                 } else { showResult("sign_result", "danger", `Thất bại: ${data.detail}`); }
             } catch(e) { showResult("sign_result", "danger", "Lỗi kết nối server!"); }
             finally { btn.disabled = false; btn.innerHTML = `<i class="fa-solid fa-paper-plane me-2"></i>Xác thực & Gửi OTP`; }
-        }
-
-        function backToStep1() {
-            document.getElementById("panel_step_2").classList.add("d-none");
-            document.getElementById("panel_step_1").classList.remove("d-none");
-            document.getElementById("sign_result").innerHTML = "";
         }
 
         async function executeSign() {

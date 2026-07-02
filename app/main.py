@@ -25,7 +25,6 @@ DB_PATH = os.path.join(DB_DIR, "audit_logs.db")
 USER_STORAGE = os.path.join(PROJECT_ROOT, "storage", "users")
 
 def init_audit_db():
-    """Khởi tạo cấu trúc bảng SQLite và cập nhật thuộc tính trạng thái kích hoạt tài khoản"""
     os.makedirs(DB_DIR, exist_ok=True)
     with sqlite3.connect(DB_PATH) as conn:
         cursor = conn.cursor()
@@ -45,11 +44,9 @@ def init_audit_db():
                 username TEXT PRIMARY KEY,
                 password TEXT,
                 role TEXT,
-                is_active INTEGER DEFAULT 1 -- 1: Đang hoạt động, 0: Vô hiệu hóa
+                is_active INTEGER DEFAULT 1
             )
         """)
-        
-        # Vá cấu trúc nâng cấp lỗi thời cho DB hiện tại nếu có
         try:
             cursor.execute("ALTER TABLE admin_roles ADD COLUMN is_active INTEGER DEFAULT 1")
         except sqlite3.OperationalError:
@@ -66,13 +63,12 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Hệ thống Hạ tầng Chữ ký số nội bộ CTUT", 
-    description="Sản phẩm Nghiên cứu Khoa học - Trung tâm Chuyển đổi số",
-    version="2.5.0",
+    description="Sản phẩm Nghiên cứu Khoa học - Trung tâm Chuyển đổi số trường ĐH KT-CN Cần Thơ",
+    version="2.6.0",
     lifespan=lifespan
 )
 
 def verify_admin_privilege(username, password, required_role=None):
-    """Xác thực danh tính và kiểm tra trạng thái hoạt động của tài khoản quản trị"""
     with sqlite3.connect(DB_PATH) as conn:
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
@@ -80,17 +76,14 @@ def verify_admin_privilege(username, password, required_role=None):
         user = cursor.fetchone()
         if not user:
             raise HTTPException(status_code=403, detail="Sai thông tin tài khoản hoặc mật khẩu quản trị.")
-        
-        # Chặn tài khoản đã bị vô hiệu hóa truy cập hệ thống
         if user["is_active"] == 0:
             raise HTTPException(status_code=403, detail="Tài khoản quản trị này đã bị vô hiệu hóa quyền truy cập.")
-            
         if required_role == "SUPER_ADMIN" and user["role"] != "SUPER_ADMIN":
             raise HTTPException(status_code=403, detail="Thao tác thất bại. Tính năng này yêu cầu đặc quyền Super Admin.")
         return user["role"]
 
 # =========================================================================
-# TRỤC ĐIỀU PHỐI API GATEWAY & KIỂM SOÁT ĐẶC QUYỀN CHÉO
+# TRỤC ĐIỀU PHỐI API GATEWAY
 # =========================================================================
 
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)
@@ -101,7 +94,6 @@ async def get_portal_interface():
             return f.read()
     return "<h3>Hệ thống đang khởi tạo giao diện Front-end...</h3>"
 
-# API CHỐNG CRASH CHÉO: Điều khiển trạng thái Hoạt động / Vô hiệu hóa tài khoản quản trị
 @app.post("/api/v1/admin/toggle-active")
 async def admin_toggle_active(
     target_user: str = Form(...),
@@ -109,8 +101,6 @@ async def admin_toggle_active(
     admin_pass: str = Form(...)
 ):
     current_role = verify_admin_privilege(admin_user, admin_pass)
-    
-    # QUI TẮC BẢO MẬT 1: Tuyệt đối không tự khóa tài khoản chính mình
     if admin_user == target_user:
         raise HTTPException(status_code=400, detail="Hệ thống từ chối lệnh tự vô hiệu hóa tài khoản chính mình.")
         
@@ -121,12 +111,9 @@ async def admin_toggle_active(
         target = cursor.fetchone()
         if not target:
             raise HTTPException(status_code=404, detail="Không tìm thấy tài khoản mục tiêu.")
-            
-        # QUI TẮC BẢO MẬT 2: Admin cấp dưới không được đụng vào trạng thái của Super Admin
         if current_role == "ADMIN" and target["role"] == "SUPER_ADMIN":
             raise HTTPException(status_code=403, detail="Yêu cầu từ chối. Bạn không có quyền thay đổi trạng thái của Super Admin.")
             
-        # Thực hiện đảo trạng thái kích hoạt nhị phân
         new_status = 0 if target["is_active"] == 1 else 1
         cursor.execute("UPDATE admin_roles SET is_active = ? WHERE username = ?", (new_status, target_user))
         
@@ -246,7 +233,6 @@ async def admin_update_user(
         with open(cert_path, "rb") as f:
             old_cert = x509.load_pem_x509_certificate(f.read())
         pub_key = old_cert.public_key()
-        
         with open(root_key_path, "rb") as f:
             root_key = serialization.load_pem_private_key(f.read(), password=None)
         with open(root_cert_path, "rb") as f:
@@ -258,7 +244,6 @@ async def admin_update_user(
             x509.NameAttribute(NameOID.COMMON_NAME, new_common_name),
             x509.NameAttribute(NameOID.USER_ID, user_id)
         ])
-        
         now = datetime.datetime.now(datetime.timezone.utc)
         new_cert = (
             x509.CertificateBuilder()
@@ -277,10 +262,8 @@ async def admin_update_user(
             .add_extension(x509.SubjectAlternativeName([x509.RFC822Name(new_email)]), critical=False)
             .sign(root_key, hashes.SHA256())
         )
-        
         with open(cert_path, "wb") as f:
             f.write(new_cert.public_bytes(serialization.Encoding.PEM))
-            
         return {"status": "success", "message": f"Hệ thống: Đã cập nhật và tái ký chứng thư thành công cho tài khoản {user_id}."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -304,16 +287,13 @@ async def request_signing_otp(user_id: str = Form(...), password: str = Form(...
 async def sign_document_with_otp(user_id: str = Form(...), password: str = Form(...), otp: str = Form(...), file: UploadFile = File(...)):
     if not AuthEngine.verify_otp(user_id, otp):
         raise HTTPException(status_code=400, detail="Mã OTP sai hoặc đã hết hạn.")
-        
     temp_dir = os.path.join(PROJECT_ROOT, "temp")
     os.makedirs(temp_dir, exist_ok=True)
     input_path = os.path.join(temp_dir, f"in_{file.filename}")
     output_filename = f"signed_{file.filename}"
     output_path = os.path.join(temp_dir, output_filename)
-    
     with open(input_path, "wb") as f:
         f.write(await file.read())
-        
     try:
         PDFEngine.sign_pdf(user_id, password, input_path, output_path)
         return {"status": "success", "filename": output_filename, "message": "Ký số văn bản hoàn tất."}
@@ -332,7 +312,6 @@ async def verify_document(request: Request, file: UploadFile = File(...)):
     temp_dir = os.path.join(PROJECT_ROOT, "temp")
     os.makedirs(temp_dir, exist_ok=True)
     file_path = os.path.join(temp_dir, f"check_{file.filename}")
-    
     with open(file_path, "wb") as f:
         f.write(await file.read())
         
@@ -351,7 +330,6 @@ async def verify_document(request: Request, file: UploadFile = File(...)):
     else:
         is_valid = result_data.get("valid", False)
         is_intact = result_data.get("intact", False)
-        
         if is_valid and is_intact:
             status_code = "VALID"
             status_str = "Chữ ký hợp lệ - Toàn vẹn dữ liệu"
@@ -377,13 +355,8 @@ async def verify_document(request: Request, file: UploadFile = File(...)):
         pass
         
     return {
-        "status": "success", 
-        "code": status_code, 
-        "status_text": status_str,
-        "result": {
-            "signer": signer_str,
-            "summary": status_str
-        }
+        "status": "success", "code": status_code, "status_text": status_str,
+        "result": {"signer": signer_str, "summary": status_str}
     }
 
 @app.get("/api/v1/pdf/verify-history")
@@ -397,7 +370,3 @@ async def get_verification_history():
             return [dict(row) for row in rows]
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="127.0.0.1", port=8000)
