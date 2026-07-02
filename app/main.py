@@ -155,14 +155,20 @@ async def admin_assign_role(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/v1/admin/roles-list")
-async def admin_list_roles(admin_user: str, admin_pass: str):
+# FIXED: API ĐỘC QUYỀN ADMIN - Chỉ bóc tách các dòng log hệ thống
+@app.get("/api/v1/admin/audit-history")
+async def get_admin_audit_history(admin_user: str, admin_pass: str):
     verify_admin_privilege(admin_user, admin_pass)
     try:
         with sqlite3.connect(DB_PATH) as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
-            cursor.execute("SELECT username, role, is_active FROM admin_roles ORDER BY role DESC")
+            cursor.execute("""
+                SELECT timestamp, status, signer, client_ip 
+                FROM verification_logs 
+                WHERE filename = 'Hạ tầng hệ thống' 
+                ORDER BY id DESC LIMIT 500
+            """)
             rows = cursor.fetchall()
             return [dict(row) for row in rows]
     except Exception as e:
@@ -359,14 +365,24 @@ async def verify_document(request: Request, file: UploadFile = File(...)):
         "result": {"signer": signer_str, "summary": status_str}
     }
 
+# FIXED: ÉP BỘ LỌC CÔNG KHAI - Loại bỏ hoàn toàn bản ghi hệ thống quản trị
 @app.get("/api/v1/pdf/verify-history")
 async def get_verification_history():
     try:
         with sqlite3.connect(DB_PATH) as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
-            cursor.execute("SELECT timestamp, filename, status, signer, client_ip FROM verification_logs ORDER BY id DESC LIMIT 1000")
+            cursor.execute("""
+                SELECT timestamp, filename, status, signer, client_ip 
+                FROM verification_logs 
+                WHERE filename != 'Hạ tầng hệ thống' 
+                ORDER BY id DESC LIMIT 1000
+            """)
             rows = cursor.fetchall()
             return [dict(row) for row in rows]
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="127.0.0.1", port=8000)
