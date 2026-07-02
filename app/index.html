@@ -952,6 +952,55 @@
                 document.getElementById("admin_create_restriction_msg").classList.remove("d-none");
             }
         }
+        async function executeRegister() {
+    // 1. Log vào Console để kiểm tra xem hàm đã được kích hoạt chưa
+    console.log("Đang bắt đầu tiến trình phát hành chứng thư...");
+
+    const uid = document.getElementById("reg_uid").value;
+    const pwd = document.getElementById("reg_pwd").value;
+    const name = document.getElementById("reg_name").value;
+    const email = document.getElementById("reg_email").value;
+    const adminUser = document.getElementById("admin_username").value;
+    const adminPass = document.getElementById("admin_password").value;
+
+    // 2. Validate dữ liệu trước khi gửi
+    if (!uid || !pwd || !name || !email) {
+        alert("Vui lòng điền đầy đủ tất cả các trường!");
+        return;
+    }
+
+    const formData = new FormData();
+    formData.append("user_id", uid);
+    formData.append("password", pwd);
+    formData.append("common_name", name);
+    formData.append("email", email);
+    formData.append("admin_user", adminUser);
+    formData.append("admin_pass", adminPass);
+
+    try {
+        const res = await fetch(`${API_BASE}/user/register`, { 
+            method: "POST", 
+            body: formData 
+        });
+        
+        const data = await res.json();
+        if (res.ok) { 
+            showResult("reg_result", "success", `Hệ thống CA: ${data.message}`);
+            loadAdminUsers();
+            // Reset form
+            document.getElementById("reg_uid").value = "";
+            document.getElementById("reg_pwd").value = "";
+            document.getElementById("reg_name").value = "";
+            document.getElementById("reg_email").value = "";
+        } else { 
+            // Hiển thị chi tiết lỗi từ server
+            showResult("reg_result", "danger", `Lỗi: ${data.detail || "Không rõ nguyên nhân"}`);
+        }
+    } catch (e) { 
+        console.error("Lỗi Fetch API:", e);
+        showResult("reg_result", "danger", "Lỗi kết nối Server! Vui lòng kiểm tra Console.");
+    }
+}
 
         async function executeAdminUpdateUser() {
             const formData = new FormData();
