@@ -9,6 +9,7 @@ from contextlib import asynccontextmanager
 from cryptography import x509
 from cryptography.x509.oid import NameOID
 from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import ec
 
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(CURRENT_DIR)
@@ -23,9 +24,49 @@ from app.core.auth_engine import AuthEngine
 DB_DIR = os.path.join(PROJECT_ROOT, "storage", "db")
 DB_PATH = os.path.join(DB_DIR, "audit_logs.db")
 USER_STORAGE = os.path.join(PROJECT_ROOT, "storage", "users")
+CA_DIR = os.path.join(PROJECT_ROOT, "storage", "ca")
 
 def init_audit_db():
+    """Khởi tạo cơ sở dữ liệu và tự động sinh cặp khóa Root CA trường CTUT nếu chưa tồn tại"""
     os.makedirs(DB_DIR, exist_ok=True)
+    os.makedirs(USER_STORAGE, exist_ok=True)
+    os.makedirs(CA_DIR, exist_ok=True)
+    
+    # 1. ĐỘNG CƠ TỰ PHỤC HỒI ROOT CA: Tạo khóa gốc tự động nếu chạy trên Cloud trống
+    root_key_path = os.path.join(CA_DIR, "root_private.pem")
+    root_cert_path = os.path.join(CA_DIR, "root_cert.pem")
+    
+    if not os.path.exists(root_key_path) or not os.path.exists(root_cert_path):
+        # Sinh khóa bí mật dùng đường cong Elliptic SECP256R1 siêu tốc độ
+        private_key = ec.generate_private_key(ec.SECP256R1())
+        with open(root_key_path, "wb") as f:
+            f.write(private_key.private_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PrivateFormat.TraditionalOpenSSL,
+                encryption_algorithm=serialization.NoEncryption()
+            ))
+            
+        # Dựng cấu trúc chứng thư gốc Root CA CTUT (X.509)
+        subject = issuer = x509.Name([
+            x509.NameAttribute(NameOID.COUNTRY_NAME, "VN"),
+            x509.NameAttribute(NameOID.ORGANIZATION_NAME, "CTUT"),
+            x509.NameAttribute(NameOID.COMMON_NAME, "CTUT Root Certificate Authority")
+        ])
+        now = datetime.datetime.now(datetime.timezone.utc)
+        cert = (
+            x509.CertificateBuilder()
+            .subject_name(subject)
+            .issuer_name(issuer)
+            .public_key(private_key.public_key())
+            .serial_number(x509.random_serial_number())
+            .not_valid_before(now)
+            .not_valid_after(now + datetime.timedelta(days=3650)) # Hạn dùng 10 năm
+            .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True)
+            .sign(private_key, hashes.SHA256())
+        )
+        with open(root_cert_path, "wb") as f:
+            f.write(cert.public_bytes(serialization.Encoding.PEM))
+
     with sqlite3.connect(DB_PATH) as conn:
         cursor = conn.cursor()
         conn.execute("PRAGMA journal_mode=DELETE;")
@@ -75,7 +116,7 @@ def verify_admin_privilege(username, password, required_role=None):
         cursor.execute("SELECT * FROM admin_roles WHERE username = ? AND password = ?", (username, password))
         user = cursor.fetchone()
         if not user:
-            raise HTTPException(status_code=403, detail="Sai thông tin tài khoản hoặc mật khẩu quản trị.")
+            raise HTTPException(status_code=403, detail="Sai thông tài khoản hoặc mật khẩu quản trị.")
         if user["is_active"] == 0:
             raise HTTPException(status_code=403, detail="Tài khoản quản trị này đã bị vô hiệu hóa quyền truy cập.")
         if required_role == "SUPER_ADMIN" and user["role"] != "SUPER_ADMIN":
@@ -250,8 +291,8 @@ async def admin_update_user(
 ):
     verify_admin_privilege(admin_user, admin_pass)
     cert_path = os.path.join(USER_STORAGE, f"{user_id}_cert.pem")
-    root_key_path = os.path.join(PROJECT_ROOT, "storage", "ca", "root_private.pem")
-    root_cert_path = os.path.join(PROJECT_ROOT, "storage", "ca", "root_cert.pem")
+    root_key_path = os.path.join(CA_DIR, "root_private.pem")
+    root_cert_path = os.path.join(CA_DIR, "root_cert.pem")
     
     if not os.path.exists(cert_path):
         raise HTTPException(status_code=404, detail="Thực thể mục tiêu không tồn tại.")
