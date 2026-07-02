@@ -38,7 +38,7 @@
                     <div class="text-white-50 small">Hạ tầng chứng thực và Ký số tập trung nội bộ</div>
                 </div>
             </div>
-            <span class="badge bg-light text-dark px-3 py-2 border">Hệ thống Live v2.4</span>
+            <span class="badge bg-light text-dark px-3 py-2 border">Hệ thống Live v2.5</span>
         </div>
     </nav>
 
@@ -137,7 +137,7 @@
                             <div class="row g-2 mb-3">
                                 <div class="col-12 col-md-5">
                                     <div class="input-group">
-                                        <span class="input-group-text bg-white border-end-0 text-muted"><i class="fa-solid fa-filter-list fa-magnifying-glass"></i></span>
+                                        <span class="input-group-text bg-white border-end-0 text-muted"><i class="fa-solid fa-magnifying-glass"></i></span>
                                         <input type="text" id="log_search" class="form-control border-start-0 ps-0" placeholder="Tìm kiếm tên văn bản hoặc người ký..." oninput="handleLogSearchAndFilter()">
                                     </div>
                                 </div>
@@ -165,7 +165,7 @@
                                     <thead>
                                         <tr>
                                             <th onclick="handleLogSort('timestamp')">Thời gian <i class="fa-solid fa-sort small ms-1 text-muted"></i></th>
-                                            <th onclick="handleLogSort('filename')" style="width: 35%;">Tên tệp tin PDF (Click để xem đầy đủ) <i class="fa-solid fa-sort small ms-1 text-muted"></i></th>
+                                            <th onclick="handleLogSort('filename')" style="width: 35%;">Tên tệp tin PDF (Click mở rộng) <i class="fa-solid fa-sort small ms-1 text-muted"></i></th>
                                             <th onclick="handleLogSort('status')">Trạng thái mật mã <i class="fa-solid fa-sort small ms-1 text-muted"></i></th>
                                             <th onclick="handleLogSort('signer')">Chủ thể sở hữu chữ ký <i class="fa-solid fa-sort small ms-1 text-muted"></i></th>
                                             <th onclick="handleLogSort('client_ip')">Địa chỉ IP <i class="fa-solid fa-sort small ms-1 text-muted"></i></th>
@@ -179,12 +179,8 @@
                             
                             <div class="d-flex flex-wrap justify-content-between align-items-center mt-3 gap-2">
                                 <small class="text-muted fw-semibold" id="log_pagination_info">Hiển thị 0 - 0 trong 0 bản ghi</small>
-                                <nav>
-                                    <ul class="pagination pagination-sm m-0" id="log_pagination_controls">
-                                        </ul>
-                                </nav>
+                                <nav><ul class="pagination pagination-sm m-0" id="log_pagination_controls"></ul></nav>
                             </div>
-
                         </div>
                     </div>
                 </div>
@@ -194,15 +190,16 @@
                 <div class="row justify-content-center">
                     <div class="col-12 col-lg-12">
                         <div class="card card-custom p-4 p-md-5">
+                            
                             <div id="admin_login_panel" class="text-center mx-auto" style="max-width: 450px;">
                                 <i class="fa-solid fa-user-lock text-danger display-4 mb-3"></i>
                                 <h4 class="fw-bold text-dark mb-2">Cổng Quản Trị Hạ Tầng Mật Mã</h4>
                                 <div class="mb-3 text-start">
                                     <label class="form-label small fw-bold text-secondary">Tài khoản Admin / Super Admin</label>
-                                    <input type="text" id="admin_username" class="form-control" placeholder="Tài khoản đăng nhập cổng quản trị">
+                                    <input type="text" id="admin_username" class="form-control" placeholder="superadmin hoặc admincds">
                                 </div>
                                 <div class="mb-4 text-start">
-                                    <label class="form-label small fw-bold text-secondary">Mật khẩu xác thực </label>
+                                    <label class="form-label small fw-bold text-secondary">Mật khẩu xác thực tối cao</label>
                                     <div class="input-group">
                                         <input type="password" id="admin_password" class="form-control" placeholder="••••••••">
                                         <button class="btn" type="button" onclick="togglePasswordVisibility('admin_password', this)"><i class="fa-solid fa-eye"></i></button>
@@ -213,7 +210,7 @@
                             </div>
 
                             <div id="admin_main_panel" class="d-none">
-                                <div class="alert alert-success border-0 rounded-3 mb-4 small fw-bold d-flex justify-content-between align-items-center">
+                                <div class="alert alert-success border-0 rounded-3 mb-4 small fw-bold d-flex justify-content-between align-items-center flex-wrap gap-2">
                                     <span><i class="fa-solid fa-circle-check me-2"></i>Trạng thái phiên làm việc: <span class="badge bg-danger fs-6" id="txt_admin_role_badge">ADMIN</span></span>
                                     <div class="d-flex gap-2">
                                         <button id="btn_toggle_privilege_panel" onclick="showPrivilegeCard()" class="btn btn-sm btn-warning fw-bold d-none"><i class="fa-solid fa-user-shield me-1"></i>Cấp Quyền Hệ Thống</button>
@@ -223,12 +220,17 @@
                                 
                                 <div class="row g-4">
                                     <div class="col-12 col-xl-7">
-                                        <div class="card border border-light p-3 p-md-4 rounded-3 h-100 bg-light">
-                                            <div class="d-flex justify-content-between align-items-center mb-3">
-                                                <h5 class="fw-bold text-dark m-0"><i class="fa-solid fa-address-book text-primary me-2"></i>Thực Thể Được Cấp Phát</h5>
-                                                <button onclick="loadAdminUsers()" class="btn btn-white btn-sm border bg-white"><i class="fa-solid fa-rotate"></i></button>
+                                        <div class="card border border-light p-3 rounded-3 h-100 bg-light">
+                                            
+                                            <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+                                                <div class="btn-group btn-group-sm bg-white p-1 rounded-2 border shadow-sm">
+                                                    <button id="sub_tab_teachers" onclick="switchAdminTableData('TEACHERS')" class="btn btn-primary fw-bold rounded-2 px-3"><i class="fa-solid fa-graduation-cap me-1"></i>Giảng Viên</button>
+                                                    <button id="sub_tab_admins" onclick="switchAdminTableData('ADMINS')" class="btn btn-white text-secondary fw-bold rounded-2 px-3 border-0"><i class="fa-solid fa-user-shield me-1"></i>Ban Quản Trị</button>
+                                                </div>
+                                                <button onclick="refreshCurrentAdminViewTable()" class="btn btn-white btn-sm border bg-white shadow-sm rounded-2"><i class="fa-solid fa-arrow-rotate-right"></i></button>
                                             </div>
-                                            <div class="table-responsive">
+                                            
+                                            <div id="wrapper_table_teachers" class="table-responsive">
                                                 <table class="table table-hover border bg-white align-middle m-0" style="font-size: 13.5px;">
                                                     <thead class="table-secondary">
                                                         <tr>
@@ -243,12 +245,28 @@
                                                     </tbody>
                                                 </table>
                                             </div>
+
+                                            <div id="wrapper_table_admins" class="table-responsive d-none">
+                                                <table class="table table-hover border bg-white align-middle m-0" style="font-size: 13.5px;">
+                                                    <thead class="table-dark">
+                                                        <tr>
+                                                            <th>Tài khoản Quản trị ID</th>
+                                                            <th>Cấp bậc đặc quyền mật mã</th>
+                                                            <th class="text-center">Trạng thái hạ tầng</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody id="admin_roles_table_body">
+                                                        <tr><td colspan="3" class="text-center text-muted py-3">Đang nạp danh sách ban quản trị...</td></tr>
+                                                    </tbody>
+                                                </table>
+                                            </div>
+
                                         </div>
                                     </div>
                                     
                                     <div class="col-12 col-xl-5">
                                         <div id="admin_create_card" class="card border p-4 rounded-3 shadow-sm bg-white h-100">
-                                            <h5 class="fw-bold text-success mb-4"><i class="fa-solid fa-user-plus me-2"></i>Cấp Phát Chứng Thư Số Mới</h5>
+                                            <h5 class="fw-bold text-success mb-4"><i class="fa-solid fa-user-plus me-2"></i>Cấp Phát Chứng Thư Số Mới</h5>
                                             <div id="admin_create_restriction_msg" class="alert alert-warning small fw-bold d-none">
                                                 <i class="fa-solid fa-lock me-1"></i> Chức năng cấp chứng thư mới bị khóa. Yêu cầu tài khoản cấp bậc Super Admin.
                                             </div>
@@ -268,18 +286,9 @@
                                                 <button onclick="closeEditUser()" class="btn btn-sm btn-outline-secondary fw-bold"><i class="fa-solid fa-xmark me-1"></i>Hủy</button>
                                             </div>
                                             <input type="hidden" id="edit_uid">
-                                            <div class="mb-3">
-                                                <label class="form-label small fw-bold text-secondary">Tài khoản mục tiêu</label>
-                                                <input type="text" id="edit_uid_display" class="form-control bg-light text-muted" disabled>
-                                            </div>
-                                            <div class="mb-3">
-                                                <label class="form-label small fw-bold text-secondary">Họ và Tên mới (Common Name)</label>
-                                                <input type="text" id="edit_name" class="form-control">
-                                            </div>
-                                            <div class="mb-4">
-                                                <label class="form-label small fw-bold text-secondary">Hộp thư mới (Email công vụ)</label>
-                                                <input type="email" id="edit_email" class="form-control">
-                                            </div>
+                                            <div class="mb-3"><label class="form-label small fw-bold text-secondary">Tài khoản mục tiêu</label><input type="text" id="edit_uid_display" class="form-control bg-light text-muted" disabled></div>
+                                            <div class="mb-3"><label class="form-label small fw-bold text-secondary">Họ và Tên mới (Common Name)</label><input type="text" id="edit_name" class="form-control"></div>
+                                            <div class="mb-4"><label class="form-label small fw-bold text-secondary">Hộp thư mới (Email công vụ)</label><input type="email" id="edit_email" class="form-control"></div>
                                             <button onclick="executeAdminUpdateUser()" class="btn btn-success btn-action fw-bold w-100 py-3"><i class="fa-solid fa-signature me-2"></i>CẬP NHẬT & TÁI KÝ CHỨNG THƯ</button>
                                             <div id="edit_user_result" class="mt-3"></div>
                                         </div>
@@ -291,7 +300,7 @@
                                             </div>
                                             <div class="mb-3"><label class="form-label small fw-bold text-secondary">Định danh tài khoản quản trị mới</label><input type="text" id="priv_user" class="form-control" placeholder="Ví dụ: levikhang_admin"></div>
                                             <div class="mb-3"><label class="form-label small fw-bold text-secondary">Mật khẩu đăng nhập cổng</label><div class="input-group"><input type="password" id="priv_pass" class="form-control" placeholder="••••••••"><button class="btn" type="button" onclick="togglePasswordVisibility('priv_pass', this)"><i class="fa-solid fa-eye"></i></button></div></div>
-                                            <div class="mb-4"><label class="form-label small fw-bold text-secondary">Chọn cấp bậc vai trò bảo mật</label><select id="priv_role" class="form-select"><option value="ADMIN">Cán bộ hỗ trợ (RA Officer/Admin)</option><option value="SUPER_ADMIN">Quản trị viên tối cao (Super Admin)</option></select></div>
+                                            <div class="mb-4"><label class="form-label small fw-bold text-secondary">Chọn vai trò bảo mật</label><select id="priv_role" class="form-select"><option value="ADMIN">Cán bộ hỗ trợ (RA Officer/Admin)</option><option value="SUPER_ADMIN">Quản trị viên tối cao (Super Admin)</option></select></div>
                                             <button onclick="executeAssignPrivilege()" class="btn btn-warning btn-action text-dark fw-bold w-100 py-3"><i class="fa-solid fa-key me-2"></i>KÍCH HOẠT ỦY QUYỀN</button>
                                             <div id="priv_result" class="mt-3"></div>
                                         </div>
@@ -310,16 +319,14 @@
     <script>
         const API_BASE = "/api/v1";
         let CURRENT_LOGGED_ROLE = "ADMIN";
+        let activeAdminSubTable = "TEACHERS"; // Quản lý trạng thái bảng Admin hiện tại
 
-        // =========================================================================
-        // KHỐI QUẢN LÝ THUẬT TOÁN DATA TABLE CHUYÊN SÂU (NEW R&D ENGINE)
-        // =========================================================================
-        let rawLogDataset = [];       // Bộ nhớ đệm giữ data thô từ SQLite Server
-        let processedLogDataset = []; // Mảng sau khi đã thực thi tìm kiếm & lọc trạng thái
-        let tableCurrentPage = 1;     // Trang hoạt động hiện tại
-        let tableRowsPerPage = 10;    // Số dòng quy định trên 1 trang
-        let tableSortField = "timestamp"; 
-        let tableSortAscending = false;   // Mặc định sắp xếp bản ghi mới nhất lên đầu
+        let rawLogDataset = [];
+        let processedLogDataset = [];
+        let tableCurrentPage = 1;
+        let tableRowsPerPage = 10;
+        let tableSortField = "timestamp";
+        let tableSortAscending = false;
 
         function togglePasswordVisibility(inputId, btn) {
             const input = document.getElementById(inputId);
@@ -340,7 +347,7 @@
                     else if (this.id === 'admin-tab') { resetAdminView(); }
                 });
             });
-            fetchHistoryFromServer(); // Tải trước tập dữ liệu để phân trang mượt mà
+            fetchHistoryFromServer();
         });
 
         function showResult(divId, type, message) {
@@ -353,47 +360,35 @@
                 </div>`;
         }
 
-        // ĐỒNG BỘ NGUỒN: Gọi API bóc tách toàn bộ bản ghi từ SQLite
         async function fetchHistoryFromServer() {
             try {
                 const res = await fetch(`${API_BASE}/pdf/verify-history`);
                 if (!res.ok) return;
                 rawLogDataset = await res.json();
-                handleLogSearchAndFilter(); // Đẩy sang trục lọc dữ liệu
+                handleLogSearchAndFilter();
             } catch (e) {
                 document.getElementById("history_table_body").innerHTML = `<tr><td colspan="5" class="text-center text-danger py-3">Lỗi mất kênh truyền đồng bộ dữ liệu SQLite.</td></tr>`;
             }
         }
 
-        // HÀM XỬ LÝ TÌM KIẾM (SEARCH-AS-YOU-TYPE) VÀ LỌC TRẠNG THÁI
         function handleLogSearchAndFilter() {
             const searchQuery = document.getElementById("log_search").value.toLowerCase().trim();
             const filterStatus = document.getElementById("log_filter_status").value;
 
             processedLogDataset = rawLogDataset.filter(item => {
-                // 1. Kiểm tra điều kiện Khớp hộp lọc Trạng thái Dropdown
                 const matchStatus = (filterStatus === "ALL") || item.status.includes(filterStatus);
-                
-                // 2. Kiểm tra điều kiện Khớp ô Tìm kiếm (Tên file hoặc người ký)
                 const matchSearch = !searchQuery || 
                                     item.filename.toLowerCase().includes(searchQuery) || 
                                     item.signer.toLowerCase().includes(searchQuery);
-                
                 return matchStatus && matchSearch;
             });
-
-            tableCurrentPage = 1; // Reset về trang đầu tiên sau khi lọc
-            sortDataset();       // Chuyển sang trục sắp xếp cấu trúc
+            tableCurrentPage = 1;
+            sortDataset();
         }
 
-        // HÀM SẮP XẾP SỐ LIỆU ĐỘNG (DYNAMIC SORTING)
         function handleLogSort(field) {
-            if (tableSortField === field) {
-                tableSortAscending = !tableSortAscending; // Đảo chiều sắp xếp
-            } else {
-                tableSortField = field;
-                tableSortAscending = true;
-            }
+            if (tableSortField === field) { tableSortAscending = !tableSortAscending; } 
+            else { tableSortField = field; tableSortAscending = true; }
             sortDataset();
         }
 
@@ -401,12 +396,11 @@
             processedLogDataset.sort((a, b) => {
                 let valA = a[tableSortField] ? a[tableSortField].toString().toLowerCase() : "";
                 let valB = b[tableSortField] ? b[tableSortField].toString().toLowerCase() : "";
-                
                 if (valA < valB) return tableSortAscending ? -1 : 1;
                 if (valA > valB) return tableSortAscending ? 1 : -1;
                 return 0;
             });
-            renderLogTable(); // Thực thi render ra giao diện layout
+            renderLogTable();
         }
 
         function handleRowsPerPageChange() {
@@ -415,19 +409,21 @@
             renderLogTable();
         }
 
-        // CƠ CHẾ CLICK MỞ RỘNG VĂN BẢN (EXPAND/COLLAPSE NAME TRÊN TABLE)
         function toggleFilenameExpand(element) {
             element.classList.toggle("text-truncate");
             element.classList.toggle("expanded-text");
         }
 
-        // RENDER GIAO DIỆN BẢNG PHÂN TRANG (PAGINATION ENGINE)
+        document.getElementById("log_search").addEventListener("keypress", function(e) {
+            if (e.key === "Enter") e.preventDefault();
+        });
+
         function renderLogTable() {
             const tbody = document.getElementById("history_table_body");
             const totalRecords = processedLogDataset.length;
             
             if (totalRecords === 0) {
-                tbody.innerHTML = `<tr><td colspan="5" class="text-center text-muted py-4">Hệ thống: Không tìm thấy bản ghi nhật ký nào khớp bộ lọc.</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="5" class="text-center text-muted py-4">Không tìm thấy nhật ký hợp lệ.</td></tr>`;
                 document.getElementById("log_pagination_info").innerText = "Hiển thị 0 - 0 trong 0 bản ghi";
                 document.getElementById("log_pagination_controls").innerHTML = "";
                 return;
@@ -449,27 +445,20 @@
                 return `
                     <tr>
                         <td class="text-secondary small" style="white-space:nowrap;">${log.timestamp}</td>
-                        <td>
-                            <span onclick="toggleFilenameExpand(this)" class="clickable-filename text-truncate fw-semibold" title="Click để mở rộng/thu gọn xem tên file đầy đủ">
-                                ${log.filename}
-                            </span>
-                        </td>
+                        <td><span onclick="toggleFilenameExpand(this)" class="clickable-filename text-truncate fw-semibold" title="Click xem tên file đầy đủ">${log.filename}</span></td>
                         <td><span class="badge ${badgeClass}">${log.status}</span></td>
                         <td><span class="badge bg-light text-dark border">${log.signer}</span></td>
                         <td class="text-monospace text-muted small">${log.client_ip}</td>
                     </tr>`;
             }).join("");
 
-            // Cập nhật nhãn thông tin phân trang
             document.getElementById("log_pagination_info").innerText = `Hiển thị ${startIndex + 1} - ${endIndex} trong ${totalRecords} bản ghi`;
 
-            // DỰNG HỆ THỐNG NÚT ĐIỀU HƯỚNG BẤM PHÂN TRANG
             let paginationHtml = `
                 <li class="page-item ${tableCurrentPage === 1 ? 'disabled' : ''}">
                     <button class="page-link" onclick="changeLogPage(${tableCurrentPage - 1})"><i class="fa-solid fa-angle-left"></i></button>
                 </li>`;
             
-            // Hiện tối đa 5 trang xung quanh trang hiện tại để tối ưu diện tích di động
             let startPage = Math.max(1, tableCurrentPage - 2);
             let endPage = Math.min(totalPages, startPage + 4);
             if (endPage - startPage < 4) startPage = Math.max(1, endPage - 4);
@@ -495,8 +484,37 @@
         }
 
         // =========================================================================
-        // PHÂN HỆ QUẢN TRỊ ADMIN WORKSPACE
+        // PHÂN HỆ QUẢN LÝ DANH SÁCH THỰC THỂ PHÍA CLIENT (ĐA NHIỆM SUB-VIEWS)
         // =========================================================================
+        
+        // FIXED: Thêm chức năng chuyển đổi Sub-view Table mượt mà giữa Giảng viên và Admin
+        function switchAdminTableData(targetSubTable) {
+            activeAdminSubTable = targetSubTable;
+            const btnTeachers = document.getElementById("sub_tab_teachers");
+            const btnAdmins = document.getElementById("sub_tab_admins");
+            const wrapperTeachers = document.getElementById("wrapper_table_teachers");
+            const wrapperAdmins = document.getElementById("wrapper_table_admins");
+
+            if (targetSubTable === "TEACHERS") {
+                btnTeachers.className = "btn btn-primary fw-bold rounded-2 px-3";
+                btnAdmins.className = "btn btn-white text-secondary fw-bold rounded-2 px-3 border-0";
+                wrapperTeachers.classList.remove("d-none");
+                wrapperAdmins.classList.add("d-none");
+                loadAdminUsers();
+            } else {
+                btnTeachers.className = "btn btn-white text-secondary fw-bold rounded-2 px-3 border-0";
+                btnAdmins.className = "btn btn-dark fw-bold rounded-2 px-3";
+                wrapperTeachers.classList.add("d-none");
+                wrapperAdmins.classList.remove("d-none");
+                loadAdminRolesList(); // Nạp danh sách Admin hệ thống
+            }
+        }
+
+        function refreshCurrentAdminViewTable() {
+            if (activeAdminSubTable === "TEACHERS") { loadAdminUsers(); }
+            else { loadAdminRolesList(); }
+        }
+
         async function loadAdminUsers() {
             const tbody = document.getElementById("admin_users_table_body");
             const admin_user = document.getElementById("admin_username").value;
@@ -516,6 +534,29 @@
                         </td>
                     </tr>`).join("");
             } catch (e) { tbody.innerHTML = `<tr><td colspan="4" class="text-center text-danger py-3">Lỗi kết nối hạ tầng mạng.</td></tr>`; }
+        }
+
+        // FIXED: Thêm hàm gọi API nạp và in danh sách Ban Quản Trị lên bảng
+        async function loadAdminRolesList() {
+            const tbody = document.getElementById("admin_roles_table_body");
+            const admin_user = document.getElementById("admin_username").value;
+            const admin_pass = document.getElementById("admin_password").value;
+            try {
+                const res = await fetch(`${API_BASE}/admin/roles-list?admin_user=${admin_user}&admin_pass=${admin_pass}`);
+                if (!res.ok) { tbody.innerHTML = `<tr><td colspan="3" class="text-center text-danger fw-bold py-3">Lỗi trích xuất phân quyền từ DB.</td></tr>`; return; }
+                const admins = await res.json();
+                tbody.innerHTML = admins.map(adm => {
+                    const isSuper = adm.role === "SUPER_ADMIN";
+                    const badgeRole = isSuper ? "bg-danger" : "bg-primary";
+                    const labelRole = isSuper ? "Quản trị tối cao (Super Admin)" : "Cán bộ hỗ trợ (RA Officer)";
+                    return `
+                        <tr>
+                            <td class="fw-bold text-dark"><i class="fa-solid fa-user-gear me-2 text-secondary"></i>${adm.username}</td>
+                            <td><span class="badge ${badgeRole}">${labelRole}</span></td>
+                            <td class="text-center"><span class="badge bg-light text-success border border-success fw-bold"><i class="fa-solid fa-circle-dot me-1"></i>Active</span></td>
+                        </tr>`;
+                }).join("");
+            } catch (e) { tbody.innerHTML = `<tr><td colspan="3" class="text-center text-danger py-3">Lỗi nghẽn đường truyền cơ sở dữ liệu.</td></tr>`; }
         }
 
         function openEditUser(uid, currentName, currentEmail) {
@@ -569,7 +610,7 @@
                 const data = await res.json();
                 if (res.ok) {
                     showResult("edit_user_result", "success", data.message);
-                    loadAdminUsers();
+                    refreshCurrentAdminViewTable();
                     setTimeout(closeEditUser, 1200);
                 } else { showResult("edit_user_result", "danger", `Lỗi: ${data.detail}`); }
             } catch (e) { showResult("edit_user_result", "danger", "Lỗi đường truyền mạng!"); }
@@ -594,6 +635,7 @@
                     showResult("priv_result", "success", data.message);
                     document.getElementById("priv_user").value = "";
                     document.getElementById("priv_pass").value = "";
+                    if (activeAdminSubTable === "ADMINS") loadAdminRolesList(); // Đổ lại danh sách Admin lập tức
                 } else { showResult("priv_result", "danger", `Lỗi: ${data.detail}`); }
             } catch (e) { showResult("priv_result", "danger", "Lỗi kết nối mạng!"); }
         }
@@ -617,7 +659,6 @@
                     const createFormFields = document.getElementById("admin_create_form_fields");
                     const restrictionMsg = document.getElementById("admin_create_restriction_msg");
 
-                    // Nhận diện cấp bậc đặc quyền động từ định danh nhập vào
                     if (user.toLowerCase().includes("super")) {
                         CURRENT_LOGGED_ROLE = "SUPER_ADMIN";
                         badge.innerText = "SUPER ADMIN";
@@ -633,7 +674,8 @@
                         createFormFields.classList.add("d-none");
                         restrictionMsg.classList.remove("d-none");
                     }
-                    loadAdminUsers();
+                    // Mặc định nạp bảng Giảng viên trước, reset nút về đúng vị trí
+                    switchAdminTableData("TEACHERS");
                 } else {
                     const errData = await res.json();
                     errDiv.innerHTML = `<div class="alert alert-danger fw-bold rounded-3 small m-0"><i class="fa-solid fa-circle-xmark me-2"></i>${errData.detail || 'Sai thông tin quản trị.'}</div>`;
@@ -757,28 +799,6 @@
                 } else { div.innerHTML = `<div class="alert alert-danger fw-bold">Lỗi xử lý luồng dữ liệu từ API.</div>`; }
             } catch (e) { div.innerHTML = `<div class="alert alert-danger fw-bold">Không thể kết nối API Gateway.</div>`; }
             finally { btn.disabled = false; btn.innerHTML = `<i class="fa-solid fa-magnifying-glass me-2"></i>BẮT ĐẦU KIỂM TRA VĂN BẢN`; fetchHistoryFromServer(); }
-        }
-
-        async function executeRegister() {
-            const formData = new FormData();
-            formData.append("user_id", document.getElementById("reg_uid").value);
-            formData.append("password", document.getElementById("reg_pwd").value);
-            formData.append("common_name", document.getElementById("reg_name").value);
-            formData.append("email", document.getElementById("reg_email").value);
-            formData.append("admin_user", document.getElementById("admin_username").value);
-            formData.append("admin_pass", document.getElementById("admin_password").value);
-
-            const res = await fetch(`${API_BASE}/user/register`, { method: "POST", body: formData });
-            const data = await res.json();
-            if (res.ok) { 
-                showResult("reg_result", "success", `Hệ thống CA: ${data.message}`);
-                loadAdminUsers();
-                document.getElementById("reg_uid").value = "";
-                document.getElementById("reg_pwd").value = "";
-                document.getElementById("reg_name").value = "";
-                document.getElementById("reg_email").value = "";
-            }
-            else { showResult("reg_result", "danger", `Lỗi: ${data.detail}`); }
         }
     </script>
 </body>

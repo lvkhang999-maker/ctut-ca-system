@@ -3,10 +3,10 @@ __pycache__/
 *.pyc
 .pytest_cache/
 
-# Tệp đệm môi trường mạng (Chứa mật khẩu Email thực tế)
+# Tệp đệm môi trường mạng
 .env
 
-# KHÔNG ĐƯỢC ĐẨY HẠ TẦNG KHÓA VÀ DB LÊN GITHUB (BẮT BUỘC)
+# HẠ TẦNG KHÓA VÀ DB
 storage/ca/*
 storage/users/*
 storage/db/*.db

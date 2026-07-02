@@ -3,6 +3,7 @@ import os
 import sys
 import sqlite3
 import datetime
+import nest_asyncio
 from fastapi import FastAPI, HTTPException, Form, UploadFile, File, Request
 from fastapi.responses import HTMLResponse, FileResponse
 from contextlib import asynccontextmanager
@@ -20,13 +21,11 @@ from app.core.pki_engine import PKIEngine
 from app.core.pdf_engine import PDFEngine
 from app.core.auth_engine import AuthEngine
 
-# Đường dẫn DB và thư mục lưu trữ khóa
 DB_DIR = os.path.join(PROJECT_ROOT, "storage", "db")
 DB_PATH = os.path.join(DB_DIR, "audit_logs.db")
 USER_STORAGE = os.path.join(PROJECT_ROOT, "storage", "users")
 
 def init_audit_db():
-    """Khởi tạo cơ sở dữ liệu nhật ký và bảng danh sách phân quyền Admin động"""
     os.makedirs(DB_DIR, exist_ok=True)
     with sqlite3.connect(DB_PATH) as conn:
         cursor = conn.cursor()
@@ -57,7 +56,6 @@ async def lifespan(app: FastAPI):
     init_audit_db()
     yield
 
-# ĐÃ LOẠI BỎ HOÀN TOÀN LỆNH NEST_ASYNCIO ĐỂ TRIỆT TIÊU BUG LỆCH TASK CONTEXT
 app = FastAPI(
     title="Hệ thống Hạ tầng Chữ ký số nội bộ CTUT", 
     description="Sản phẩm Nghiên cứu Khoa học - Trung tâm Chuyển đổi số",
@@ -78,7 +76,7 @@ def verify_admin_privilege(username, password, required_role=None):
         return user["role"]
 
 # =========================================================================
-# NÂNG CẤP KIẾN TRÚC: CHUYỂN TOÀN BỘ SANG ASYNC DEF ĐỂ BỎ QUA ANYIO THREADPOOL
+# TRỤC ĐIỀU PHỐI API GATEWAY
 # =========================================================================
 
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)
@@ -118,6 +116,20 @@ async def admin_assign_role(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+# PHÂN HỆ PHÁT TRIỂN MỚI: API XUẤT DANH SÁCH BAN QUẢN TRỊ HỆ THỐNG
+@app.get("/api/v1/admin/roles-list")
+async def admin_list_roles(admin_user: str, admin_pass: str):
+    verify_admin_privilege(admin_user, admin_pass)
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute("SELECT username, role FROM admin_roles ORDER BY role DESC")
+            rows = cursor.fetchall()
+            return [dict(row) for row in rows]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/api/v1/user/register")
 async def register_user(
     user_id: str = Form(...), 
@@ -137,7 +149,6 @@ async def register_user(
 @app.get("/api/v1/admin/users")
 async def admin_list_users(admin_user: str, admin_pass: str):
     verify_admin_privilege(admin_user, admin_pass)
-    
     users_list = []
     if not os.path.exists(USER_STORAGE):
         return users_list
@@ -149,10 +160,8 @@ async def admin_list_users(admin_user: str, admin_pass: str):
             try:
                 with open(cert_path, "rb") as f:
                     cert = x509.load_pem_x509_certificate(f.read())
-                
                 cn_attrs = cert.subject.get_attributes_for_oid(NameOID.COMMON_NAME)
                 cn = cn_attrs[0].value if cn_attrs else user_id
-                
                 email_str = "-"
                 try:
                     san = cert.extensions.get_extension_for_class(x509.SubjectAlternativeName)
@@ -161,7 +170,6 @@ async def admin_list_users(admin_user: str, admin_pass: str):
                         email_str = emails[0]
                 except Exception:
                     pass
-                    
                 users_list.append({"user_id": user_id, "common_name": cn, "email": email_str})
             except Exception:
                 pass
@@ -318,13 +326,8 @@ async def verify_document(request: Request, file: UploadFile = File(...)):
         pass
         
     return {
-        "status": "success", 
-        "code": status_code, 
-        "status_text": status_str,
-        "result": {
-            "signer": signer_str,
-            "summary": status_str
-        }
+        "status": "success", "code": status_code, "status_text": status_str,
+        "result": {"signer": signer_str, "summary": status_str}
     }
 
 @app.get("/api/v1/pdf/verify-history")
@@ -338,7 +341,3 @@ async def get_verification_history():
             return [dict(row) for row in rows]
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="127.0.0.1", port=8000)
