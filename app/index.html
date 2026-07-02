@@ -1,0 +1,785 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cổng Chữ Ký Số Tập Trung - CTUT</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <style>
+        body { background-color: #f4f7fc; font-family: 'Segoe UI', system-ui, sans-serif; }
+        .navbar-custom { background-color: #0f2d59 !important; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .card-custom { border: none; border-radius: 16px; box-shadow: 0 10px 30px rgba(15,45,89,0.05); background: #ffffff; }
+        .nav-pills .nav-link { color: #4a5568; font-weight: 600; border-radius: 10px; padding: 12px 20px; transition: all 0.3s; }
+        .nav-pills .nav-link.active { background-color: #0f2d59 !important; color: white !important; }
+        .form-control, .form-select { border-radius: 10px; padding: 12px; border: 1px solid #e2e8f0; }
+        .form-control:focus, .form-select:focus { border-color: #0f2d59; box-shadow: 0 0 0 3px rgba(15,45,89,0.1); }
+        .input-group .form-control { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+        .input-group .btn { border-top-right-radius: 10px; border-bottom-right-radius: 10px; border: 1px solid #e2e8f0; border-left: none; background: #fff; color: #a0aec0; }
+        .btn-action { border-radius: 10px; padding: 12px; font-weight: 600; transition: all 0.2s; }
+        .otp-input { letter-spacing: 8px; font-size: 24px; font-weight: bold; text-align: center; color: #0f2d59; background-color: #f8fafc; }
+        .wizard-step-header { border-bottom: 2px solid #edf2f7; padding-bottom: 15px; margin-bottom: 25px; }
+        .table-custom { border-radius: 10px; overflow: hidden; }
+        .table-custom th { background-color: #f8fafc; color: #4a5568; font-weight: 600; font-size: 13px; text-transform: uppercase; cursor: pointer; user-select: none; }
+        .table-custom td { font-size: 14px; vertical-align: middle; }
+        .clickable-filename { cursor: pointer; color: #0f2d59; transition: color 0.2s; max-width: 260px; display: inline-block; }
+        .clickable-filename:hover { color: #0284c7; text-decoration: underline; }
+        .expanded-text { white-space: normal !important; overflow: visible !important; max-width: none !important; display: block !important; }
+    </style>
+</head>
+<body>
+
+    <nav class="navbar navbar-dark navbar-custom py-3">
+        <div class="container">
+            <div class="d-flex align-items-center">
+                <i class="fa-solid fa-shield-halved text-warning fs-3 me-3"></i>
+                <div>
+                    <a class="navbar-brand fw-bold m-0 p-0 fs-4" href="#">CTUT REMOTE SIGNING PORTAL</a>
+                    <div class="text-white-50 small">Hạ tầng chứng thực và Ký số tập trung nội bộ</div>
+                </div>
+            </div>
+            <span class="badge bg-light text-dark px-3 py-2 border">Hệ thống Live v2.4</span>
+        </div>
+    </nav>
+
+    <div class="container my-5">
+        <div class="row mb-4">
+            <div class="col-12 text-center text-md-start">
+                <div class="bg-white p-2 rounded-3 shadow-sm d-inline-flex flex-wrap gap-1">
+                    <ul class="nav nav-pills flex-column flex-sm-row" id="pkiTabs" role="tablist">
+                        <li class="nav-item">
+                            <button class="nav-link active" id="sign-tab" data-bs-toggle="pill" data-bs-target="#sign" type="button"><i class="fa-solid fa-pen-nib me-2"></i>Ký Số Văn Bản</button>
+                        </li>
+                        <li class="nav-item">
+                            <button class="nav-link" id="verify-tab" data-bs-toggle="pill" data-bs-target="#verify" type="button"><i class="fa-solid fa-circle-check me-2"></i>Xác Thực Công Khai</button>
+                        </li>
+                        <li class="nav-item">
+                            <button class="nav-link" id="admin-tab" data-bs-toggle="pill" data-bs-target="#admin" type="button"><i class="fa-solid fa-user-gear me-2"></i>Cổng Quản Trị</button>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <div class="tab-content" id="pkiTabsContent">
+            <div class="tab-pane fade show active" id="sign" role="tabpanel">
+                <div class="row justify-content-center">
+                    <div class="col-12 col-lg-8">
+                        <div class="card card-custom p-4 p-md-5">
+                            <div id="panel_step_1">
+                                <div class="d-flex align-items-center wizard-step-header">
+                                    <span class="badge bg-danger rounded-circle me-3 px-3 py-2 fs-6">1</span>
+                                    <h4 class="m-0 fw-bold text-danger">Bước 1: Đăng Nhập Hệ Thống</h4>
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label small fw-bold text-secondary">Tài khoản (User ID)</label>
+                                    <input type="text" id="sign_uid" class="form-control" placeholder="Nhập tên tài khoản">
+                                </div>
+                                <div class="mb-4">
+                                    <label class="form-label small fw-bold text-secondary">Mật khẩu khóa Private</label>
+                                    <div class="input-group">
+                                        <input type="password" id="sign_pwd" class="form-control" placeholder="••••••••">
+                                        <button class="btn" type="button" onclick="togglePasswordVisibility('sign_pwd', this)"><i class="fa-solid fa-eye"></i></button>
+                                    </div>
+                                </div>
+                                <button onclick="requestOTP()" id="btn_otp" class="btn btn-warning w-100 btn-action text-dark fw-bold py-3"><i class="fa-solid fa-paper-plane me-2"></i>Xác thực & Gửi OTP</button>
+                            </div>
+
+                            <div id="panel_step_2" class="d-none">
+                                <div class="d-flex align-items-center wizard-step-header">
+                                    <span class="badge bg-success rounded-circle me-3 px-3 py-2 fs-6">2</span>
+                                    <h4 class="m-0 fw-bold text-success">Bước 2: Phê Duyệt Lượt Ký Mật Mã</h4>
+                                </div>
+                                <div class="alert alert-info border-0 rounded-3 mb-4">Mã OTP giao dịch xác thực đã được gửi về hộp thư cá nhân công vụ.</div>
+                                <div class="mb-3">
+                                    <label class="form-label small fw-bold text-secondary">Tải lên văn bản PDF cần ký</label>
+                                    <input type="file" id="sign_file" class="form-control" accept=".pdf">
+                                </div>
+                                <div class="mb-4">
+                                    <label class="form-label small fw-bold text-secondary">Nhập mã xác thực OTP (6 chữ số)</label>
+                                    <input type="text" id="sign_otp" class="form-control otp-input" placeholder="000000" maxlength="6">
+                                </div>
+                                <div class="row g-2">
+                                    <div class="col-4"><button onclick="backToStep1()" class="btn btn-outline-secondary w-100 btn-action py-3">Quay lại</button></div>
+                                    <div class="col-8">
+                                        <button onclick="executeSign()" id="btn_sign" class="btn btn-primary w-100 btn-action py-3" style="background-color: #0f2d59; border:none;">
+                                            <span id="sign_text"><i class="fa-solid fa-signature me-2"></i>KÝ SỐ ĐIỆN TỬ</span>
+                                            <span id="sign_spinner" class="spinner-border spinner-border-sm d-none"></span>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                            <div id="sign_result" class="mt-4"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="tab-pane fade" id="verify" role="tabpanel">
+                <div class="row justify-content-center">
+                    <div class="col-12 col-md-11 col-lg-10">
+                        <div class="card card-custom p-4 p-md-5 text-center mb-4">
+                            <i class="fa-solid fa-file-shield text-success display-4 mb-3"></i>
+                            <h4 class="fw-bold">Thẩm Định Văn Bản Số Công Khai</h4>
+                            <div class="w-100 mb-3">
+                                <input type="file" id="verify_file" class="form-control mb-3" accept=".pdf">
+                                <button onclick="executeVerify()" class="btn btn-success btn-action py-3 w-100 fw-bold"><i class="fa-solid fa-magnifying-glass me-2"></i>BẮT ĐẦU KIỂM TRA VĂN BẢN</button>
+                            </div>
+                            <div id="verify_result" class="mt-4 text-start"></div>
+                        </div>
+
+                        <div class="card card-custom p-4">
+                            <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-4">
+                                <h5 class="fw-bold m-0 text-dark"><i class="fa-solid fa-clock-history me-2 text-primary"></i>Nhật Ký Thẩm Định Hệ Thống</h5>
+                                <button onclick="fetchHistoryFromServer()" class="btn btn-light btn-sm border text-secondary px-3"><i class="fa-solid fa-rotate me-1"></i>Đồng bộ nguồn</button>
+                            </div>
+                            
+                            <div class="row g-2 mb-3">
+                                <div class="col-12 col-md-5">
+                                    <div class="input-group">
+                                        <span class="input-group-text bg-white border-end-0 text-muted"><i class="fa-solid fa-filter-list fa-magnifying-glass"></i></span>
+                                        <input type="text" id="log_search" class="form-control border-start-0 ps-0" placeholder="Tìm kiếm tên văn bản hoặc người ký..." oninput="handleLogSearchAndFilter()">
+                                    </div>
+                                </div>
+                                <div class="col-6 col-md-4">
+                                    <select id="log_filter_status" class="form-select" onchange="handleLogSearchAndFilter()">
+                                        <option value="ALL">-- Tất cả trạng thái mật mã --</option>
+                                        <option value="HỢP LỆ">Chữ ký hợp lệ - Toàn vẹn dữ liệu</option>
+                                        <option value="BỊ CHỈNH SỬA">Cảnh báo: Toàn vẹn dữ liệu bị vi phạm</option>
+                                        <option value="Tài liệu thuần túy">Tài liệu thuần túy (Unsigned)</option>
+                                        <option value="ỦY QUYỀN">Nhật ký ủy quyền quản trị</option>
+                                    </select>
+                                </div>
+                                <div class="col-6 col-md-3">
+                                    <select id="log_rows_per_page" class="form-select" onchange="handleRowsPerPageChange()">
+                                        <option value="5">5 dòng / trang</option>
+                                        <option value="10" selected>10 dòng / trang</option>
+                                        <option value="25">25 dòng / trang</option>
+                                        <option value="50">50 dòng / trang</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div class="table-responsive">
+                                <table class="table table-custom table-hover border align-middle m-0">
+                                    <thead>
+                                        <tr>
+                                            <th onclick="handleLogSort('timestamp')">Thời gian <i class="fa-solid fa-sort small ms-1 text-muted"></i></th>
+                                            <th onclick="handleLogSort('filename')" style="width: 35%;">Tên tệp tin PDF (Click để xem đầy đủ) <i class="fa-solid fa-sort small ms-1 text-muted"></i></th>
+                                            <th onclick="handleLogSort('status')">Trạng thái mật mã <i class="fa-solid fa-sort small ms-1 text-muted"></i></th>
+                                            <th onclick="handleLogSort('signer')">Chủ thể sở hữu chữ ký <i class="fa-solid fa-sort small ms-1 text-muted"></i></th>
+                                            <th onclick="handleLogSort('client_ip')">Địa chỉ IP <i class="fa-solid fa-sort small ms-1 text-muted"></i></th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="history_table_body">
+                                        <tr><td colspan="5" class="text-center text-muted py-4">Đang nạp dữ liệu nhật ký bảo mật...</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                            
+                            <div class="d-flex flex-wrap justify-content-between align-items-center mt-3 gap-2">
+                                <small class="text-muted fw-semibold" id="log_pagination_info">Hiển thị 0 - 0 trong 0 bản ghi</small>
+                                <nav>
+                                    <ul class="pagination pagination-sm m-0" id="log_pagination_controls">
+                                        </ul>
+                                </nav>
+                            </div>
+
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="tab-pane fade" id="admin" role="tabpanel">
+                <div class="row justify-content-center">
+                    <div class="col-12 col-lg-12">
+                        <div class="card card-custom p-4 p-md-5">
+                            <div id="admin_login_panel" class="text-center mx-auto" style="max-width: 450px;">
+                                <i class="fa-solid fa-user-lock text-danger display-4 mb-3"></i>
+                                <h4 class="fw-bold text-dark mb-2">Cổng Quản Trị Hạ Tầng Mật Mã</h4>
+                                <div class="mb-3 text-start">
+                                    <label class="form-label small fw-bold text-secondary">Tài khoản Admin / Super Admin</label>
+                                    <input type="text" id="admin_username" class="form-control" placeholder="Tài khoản đăng nhập cổng quản trị">
+                                </div>
+                                <div class="mb-4 text-start">
+                                    <label class="form-label small fw-bold text-secondary">Mật khẩu xác thực </label>
+                                    <div class="input-group">
+                                        <input type="password" id="admin_password" class="form-control" placeholder="••••••••">
+                                        <button class="btn" type="button" onclick="togglePasswordVisibility('admin_password', this)"><i class="fa-solid fa-eye"></i></button>
+                                    </div>
+                                </div>
+                                <button onclick="unlockAdminPanel()" class="btn btn-danger btn-action w-100 py-3 fw-bold">XÁC THỰC QUYỀN HẠ TẦNG</button>
+                                <div id="admin_auth_result" class="mt-3"></div>
+                            </div>
+
+                            <div id="admin_main_panel" class="d-none">
+                                <div class="alert alert-success border-0 rounded-3 mb-4 small fw-bold d-flex justify-content-between align-items-center">
+                                    <span><i class="fa-solid fa-circle-check me-2"></i>Trạng thái phiên làm việc: <span class="badge bg-danger fs-6" id="txt_admin_role_badge">ADMIN</span></span>
+                                    <div class="d-flex gap-2">
+                                        <button id="btn_toggle_privilege_panel" onclick="showPrivilegeCard()" class="btn btn-sm btn-warning fw-bold d-none"><i class="fa-solid fa-user-shield me-1"></i>Cấp Quyền Hệ Thống</button>
+                                        <button onclick="resetAdminView()" class="btn btn-sm btn-outline-danger fw-bold"><i class="fa-solid fa-right-from-bracket me-1"></i>Đăng xuất</button>
+                                    </div>
+                                </div>
+                                
+                                <div class="row g-4">
+                                    <div class="col-12 col-xl-7">
+                                        <div class="card border border-light p-3 p-md-4 rounded-3 h-100 bg-light">
+                                            <div class="d-flex justify-content-between align-items-center mb-3">
+                                                <h5 class="fw-bold text-dark m-0"><i class="fa-solid fa-address-book text-primary me-2"></i>Thực Thể Được Cấp Phát</h5>
+                                                <button onclick="loadAdminUsers()" class="btn btn-white btn-sm border bg-white"><i class="fa-solid fa-rotate"></i></button>
+                                            </div>
+                                            <div class="table-responsive">
+                                                <table class="table table-hover border bg-white align-middle m-0" style="font-size: 13.5px;">
+                                                    <thead class="table-secondary">
+                                                        <tr>
+                                                            <th>Tài khoản ID</th>
+                                                            <th>Họ và Tên (CN)</th>
+                                                            <th>Email nhận OTP</th>
+                                                            <th class="text-center">Thao tác</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody id="admin_users_table_body">
+                                                        <tr><td colspan="4" class="text-center text-muted py-3">Đang tải danh sách tài khoản...</td></tr>
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="col-12 col-xl-5">
+                                        <div id="admin_create_card" class="card border p-4 rounded-3 shadow-sm bg-white h-100">
+                                            <h5 class="fw-bold text-success mb-4"><i class="fa-solid fa-user-plus me-2"></i>Cấp Phát Chứng Thư Số Mới</h5>
+                                            <div id="admin_create_restriction_msg" class="alert alert-warning small fw-bold d-none">
+                                                <i class="fa-solid fa-lock me-1"></i> Chức năng cấp chứng thư mới bị khóa. Yêu cầu tài khoản cấp bậc Super Admin.
+                                            </div>
+                                            <div id="admin_create_form_fields">
+                                                <div class="mb-3"><label class="form-label small fw-bold text-secondary">User ID</label><input type="text" id="reg_uid" class="form-control" placeholder="levikhang"></div>
+                                                <div class="mb-3"><label class="form-label small fw-bold text-secondary">Mật khẩu khóa Private</label><div class="input-group"><input type="password" id="reg_pwd" class="form-control" placeholder="Mật khẩu bảo mật"><button class="btn" type="button" onclick="togglePasswordVisibility('reg_pwd', this)"><i class="fa-solid fa-eye"></i></button></div></div>
+                                                <div class="mb-3"><label class="form-label small fw-bold text-secondary">Họ và Tên chủ sở hữu</label><input type="text" id="reg_name" class="form-control" placeholder="Lê Vĩ Khang"></div>
+                                                <div class="mb-4"><label class="form-label small fw-bold text-secondary">Email nhận OTP thực tế</label><input type="email" id="reg_email" class="form-control" placeholder="lvkhang@ctuet.edu.vn"></div>
+                                                <button onclick="executeRegister()" class="btn btn-primary btn-action fw-bold w-100 py-3" style="background-color: #0f2d59; border:none;"><i class="fa-solid fa-user-plus me-2"></i>PHÁT HÀNH CHỨNG THƯ SỐ</button>
+                                            </div>
+                                            <div id="reg_result" class="mt-3"></div>
+                                        </div>
+
+                                        <div id="admin_edit_card" class="card border border-primary p-4 rounded-3 shadow-sm bg-white h-100 d-none">
+                                            <div class="d-flex justify-content-between align-items-center mb-4">
+                                                <h5 class="fw-bold text-primary m-0"><i class="fa-solid fa-user-pen me-2"></i>Chỉnh Sửa & Tái Ký</h5>
+                                                <button onclick="closeEditUser()" class="btn btn-sm btn-outline-secondary fw-bold"><i class="fa-solid fa-xmark me-1"></i>Hủy</button>
+                                            </div>
+                                            <input type="hidden" id="edit_uid">
+                                            <div class="mb-3">
+                                                <label class="form-label small fw-bold text-secondary">Tài khoản mục tiêu</label>
+                                                <input type="text" id="edit_uid_display" class="form-control bg-light text-muted" disabled>
+                                            </div>
+                                            <div class="mb-3">
+                                                <label class="form-label small fw-bold text-secondary">Họ và Tên mới (Common Name)</label>
+                                                <input type="text" id="edit_name" class="form-control">
+                                            </div>
+                                            <div class="mb-4">
+                                                <label class="form-label small fw-bold text-secondary">Hộp thư mới (Email công vụ)</label>
+                                                <input type="email" id="edit_email" class="form-control">
+                                            </div>
+                                            <button onclick="executeAdminUpdateUser()" class="btn btn-success btn-action fw-bold w-100 py-3"><i class="fa-solid fa-signature me-2"></i>CẬP NHẬT & TÁI KÝ CHỨNG THƯ</button>
+                                            <div id="edit_user_result" class="mt-3"></div>
+                                        </div>
+
+                                        <div id="admin_privilege_card" class="card border border-warning p-4 rounded-3 shadow-sm bg-white h-100 d-none">
+                                            <div class="d-flex justify-content-between align-items-center mb-4">
+                                                <h5 class="fw-bold text-warning text-dark m-0"><i class="fa-solid fa-user-shield me-2 text-warning"></i>Cấp Đặc Quyền Hệ Thống</h5>
+                                                <button onclick="closePrivilegeCard()" class="btn btn-sm btn-outline-secondary fw-bold"><i class="fa-solid fa-xmark me-1"></i>Đóng</button>
+                                            </div>
+                                            <div class="mb-3"><label class="form-label small fw-bold text-secondary">Định danh tài khoản quản trị mới</label><input type="text" id="priv_user" class="form-control" placeholder="Ví dụ: levikhang_admin"></div>
+                                            <div class="mb-3"><label class="form-label small fw-bold text-secondary">Mật khẩu đăng nhập cổng</label><div class="input-group"><input type="password" id="priv_pass" class="form-control" placeholder="••••••••"><button class="btn" type="button" onclick="togglePasswordVisibility('priv_pass', this)"><i class="fa-solid fa-eye"></i></button></div></div>
+                                            <div class="mb-4"><label class="form-label small fw-bold text-secondary">Chọn cấp bậc vai trò bảo mật</label><select id="priv_role" class="form-select"><option value="ADMIN">Cán bộ hỗ trợ (RA Officer/Admin)</option><option value="SUPER_ADMIN">Quản trị viên tối cao (Super Admin)</option></select></div>
+                                            <button onclick="executeAssignPrivilege()" class="btn btn-warning btn-action text-dark fw-bold w-100 py-3"><i class="fa-solid fa-key me-2"></i>KÍCH HOẠT ỦY QUYỀN</button>
+                                            <div id="priv_result" class="mt-3"></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        const API_BASE = "/api/v1";
+        let CURRENT_LOGGED_ROLE = "ADMIN";
+
+        // =========================================================================
+        // KHỐI QUẢN LÝ THUẬT TOÁN DATA TABLE CHUYÊN SÂU (NEW R&D ENGINE)
+        // =========================================================================
+        let rawLogDataset = [];       // Bộ nhớ đệm giữ data thô từ SQLite Server
+        let processedLogDataset = []; // Mảng sau khi đã thực thi tìm kiếm & lọc trạng thái
+        let tableCurrentPage = 1;     // Trang hoạt động hiện tại
+        let tableRowsPerPage = 10;    // Số dòng quy định trên 1 trang
+        let tableSortField = "timestamp"; 
+        let tableSortAscending = false;   // Mặc định sắp xếp bản ghi mới nhất lên đầu
+
+        function togglePasswordVisibility(inputId, btn) {
+            const input = document.getElementById(inputId);
+            const icon = btn.querySelector("i");
+            if (input.type === "password") { input.type = "text"; icon.className = "fa-solid fa-eye-slash"; }
+            else { input.type = "password"; icon.className = "fa-solid fa-eye"; }
+        }
+
+        document.addEventListener("DOMContentLoaded", () => {
+            const tabButtons = document.querySelectorAll('#pkiTabs button');
+            tabButtons.forEach(button => {
+                button.addEventListener('click', function (e) {
+                    e.preventDefault();
+                    const tabTrigger = new bootstrap.Tab(this);
+                    tabTrigger.show();
+
+                    if (this.id === 'verify-tab') { fetchHistoryFromServer(); }
+                    else if (this.id === 'admin-tab') { resetAdminView(); }
+                });
+            });
+            fetchHistoryFromServer(); // Tải trước tập dữ liệu để phân trang mượt mà
+        });
+
+        function showResult(divId, type, message) {
+            const div = document.getElementById(divId);
+            div.innerHTML = `
+                <div class="alert alert-${type} alert-dismissible fade show fw-bold shadow-sm rounded-3 m-0" role="alert">
+                    <i class="fa-solid ${type === 'success' ? 'fa-circle-check' : 'fa-triangle-exclamation'} me-2"></i>
+                    ${message}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                </div>`;
+        }
+
+        // ĐỒNG BỘ NGUỒN: Gọi API bóc tách toàn bộ bản ghi từ SQLite
+        async function fetchHistoryFromServer() {
+            try {
+                const res = await fetch(`${API_BASE}/pdf/verify-history`);
+                if (!res.ok) return;
+                rawLogDataset = await res.json();
+                handleLogSearchAndFilter(); // Đẩy sang trục lọc dữ liệu
+            } catch (e) {
+                document.getElementById("history_table_body").innerHTML = `<tr><td colspan="5" class="text-center text-danger py-3">Lỗi mất kênh truyền đồng bộ dữ liệu SQLite.</td></tr>`;
+            }
+        }
+
+        // HÀM XỬ LÝ TÌM KIẾM (SEARCH-AS-YOU-TYPE) VÀ LỌC TRẠNG THÁI
+        function handleLogSearchAndFilter() {
+            const searchQuery = document.getElementById("log_search").value.toLowerCase().trim();
+            const filterStatus = document.getElementById("log_filter_status").value;
+
+            processedLogDataset = rawLogDataset.filter(item => {
+                // 1. Kiểm tra điều kiện Khớp hộp lọc Trạng thái Dropdown
+                const matchStatus = (filterStatus === "ALL") || item.status.includes(filterStatus);
+                
+                // 2. Kiểm tra điều kiện Khớp ô Tìm kiếm (Tên file hoặc người ký)
+                const matchSearch = !searchQuery || 
+                                    item.filename.toLowerCase().includes(searchQuery) || 
+                                    item.signer.toLowerCase().includes(searchQuery);
+                
+                return matchStatus && matchSearch;
+            });
+
+            tableCurrentPage = 1; // Reset về trang đầu tiên sau khi lọc
+            sortDataset();       // Chuyển sang trục sắp xếp cấu trúc
+        }
+
+        // HÀM SẮP XẾP SỐ LIỆU ĐỘNG (DYNAMIC SORTING)
+        function handleLogSort(field) {
+            if (tableSortField === field) {
+                tableSortAscending = !tableSortAscending; // Đảo chiều sắp xếp
+            } else {
+                tableSortField = field;
+                tableSortAscending = true;
+            }
+            sortDataset();
+        }
+
+        function sortDataset() {
+            processedLogDataset.sort((a, b) => {
+                let valA = a[tableSortField] ? a[tableSortField].toString().toLowerCase() : "";
+                let valB = b[tableSortField] ? b[tableSortField].toString().toLowerCase() : "";
+                
+                if (valA < valB) return tableSortAscending ? -1 : 1;
+                if (valA > valB) return tableSortAscending ? 1 : -1;
+                return 0;
+            });
+            renderLogTable(); // Thực thi render ra giao diện layout
+        }
+
+        function handleRowsPerPageChange() {
+            tableRowsPerPage = parseInt(document.getElementById("log_rows_per_page").value);
+            tableCurrentPage = 1;
+            renderLogTable();
+        }
+
+        // CƠ CHẾ CLICK MỞ RỘNG VĂN BẢN (EXPAND/COLLAPSE NAME TRÊN TABLE)
+        function toggleFilenameExpand(element) {
+            element.classList.toggle("text-truncate");
+            element.classList.toggle("expanded-text");
+        }
+
+        // RENDER GIAO DIỆN BẢNG PHÂN TRANG (PAGINATION ENGINE)
+        function renderLogTable() {
+            const tbody = document.getElementById("history_table_body");
+            const totalRecords = processedLogDataset.length;
+            
+            if (totalRecords === 0) {
+                tbody.innerHTML = `<tr><td colspan="5" class="text-center text-muted py-4">Hệ thống: Không tìm thấy bản ghi nhật ký nào khớp bộ lọc.</td></tr>`;
+                document.getElementById("log_pagination_info").innerText = "Hiển thị 0 - 0 trong 0 bản ghi";
+                document.getElementById("log_pagination_controls").innerHTML = "";
+                return;
+            }
+
+            const totalPages = Math.ceil(totalRecords / tableRowsPerPage);
+            if (tableCurrentPage > totalPages) tableCurrentPage = totalPages;
+
+            const startIndex = (tableCurrentPage - 1) * tableRowsPerPage;
+            const endIndex = Math.min(startIndex + tableRowsPerPage, totalRecords);
+            const pagedData = processedLogDataset.slice(startIndex, endIndex);
+
+            tbody.innerHTML = pagedData.map(log => {
+                let badgeClass = "bg-success";
+                if (log.status.includes("vi phạm") || log.status.includes("BỊ CHỈNH SỬA")) badgeClass = "bg-danger";
+                if (log.status.includes("thuần túy") || log.status.includes("Unsigned")) badgeClass = "bg-warning text-dark";
+                if (log.status.includes("ỦY QUYỀN")) badgeClass = "bg-dark text-white";
+
+                return `
+                    <tr>
+                        <td class="text-secondary small" style="white-space:nowrap;">${log.timestamp}</td>
+                        <td>
+                            <span onclick="toggleFilenameExpand(this)" class="clickable-filename text-truncate fw-semibold" title="Click để mở rộng/thu gọn xem tên file đầy đủ">
+                                ${log.filename}
+                            </span>
+                        </td>
+                        <td><span class="badge ${badgeClass}">${log.status}</span></td>
+                        <td><span class="badge bg-light text-dark border">${log.signer}</span></td>
+                        <td class="text-monospace text-muted small">${log.client_ip}</td>
+                    </tr>`;
+            }).join("");
+
+            // Cập nhật nhãn thông tin phân trang
+            document.getElementById("log_pagination_info").innerText = `Hiển thị ${startIndex + 1} - ${endIndex} trong ${totalRecords} bản ghi`;
+
+            // DỰNG HỆ THỐNG NÚT ĐIỀU HƯỚNG BẤM PHÂN TRANG
+            let paginationHtml = `
+                <li class="page-item ${tableCurrentPage === 1 ? 'disabled' : ''}">
+                    <button class="page-link" onclick="changeLogPage(${tableCurrentPage - 1})"><i class="fa-solid fa-angle-left"></i></button>
+                </li>`;
+            
+            // Hiện tối đa 5 trang xung quanh trang hiện tại để tối ưu diện tích di động
+            let startPage = Math.max(1, tableCurrentPage - 2);
+            let endPage = Math.min(totalPages, startPage + 4);
+            if (endPage - startPage < 4) startPage = Math.max(1, endPage - 4);
+
+            for (let i = startPage; i <= endPage; i++) {
+                paginationHtml += `
+                    <li class="page-item ${tableCurrentPage === i ? 'active' : ''}">
+                        <button class="page-link ${tableCurrentPage === i ? 'bg-primary border-primary' : ''}" onclick="changeLogPage(${i})">${i}</button>
+                    </li>`;
+            }
+
+            paginationHtml += `
+                <li class="page-item ${tableCurrentPage === totalPages ? 'disabled' : ''}">
+                    <button class="page-link" onclick="changeLogPage(${tableCurrentPage + 1})"><i class="fa-solid fa-angle-right"></i></button>
+                </li>`;
+
+            document.getElementById("log_pagination_controls").innerHTML = paginationHtml;
+        }
+
+        function changeLogPage(pageTarget) {
+            tableCurrentPage = pageTarget;
+            renderLogTable();
+        }
+
+        // =========================================================================
+        // PHÂN HỆ QUẢN TRỊ ADMIN WORKSPACE
+        // =========================================================================
+        async function loadAdminUsers() {
+            const tbody = document.getElementById("admin_users_table_body");
+            const admin_user = document.getElementById("admin_username").value;
+            const admin_pass = document.getElementById("admin_password").value;
+            try {
+                const res = await fetch(`${API_BASE}/admin/users?admin_user=${admin_user}&admin_pass=${admin_pass}`);
+                if (!res.ok) { tbody.innerHTML = `<tr><td colspan="4" class="text-center text-danger fw-bold py-3">Lỗi bóc tách cấu thư số từ Server.</td></tr>`; return; }
+                const users = await res.json();
+                if (!Array.isArray(users) || users.length === 0) { tbody.innerHTML = `<tr><td colspan="4" class="text-center text-muted py-3">Chưa khởi tạo tài khoản giảng viên nào.</td></tr>`; return; }
+                tbody.innerHTML = users.map(user => `
+                    <tr>
+                        <td class="fw-bold text-secondary">${user.user_id}</td>
+                        <td class="text-dark fw-bold">${user.common_name}</td>
+                        <td class="text-monospace text-muted">${user.email}</td>
+                        <td class="text-center">
+                            <button onclick="openEditUser('${user.user_id}', '${user.common_name}', '${user.email}')" class="btn btn-sm btn-outline-primary fw-bold px-2 py-1"><i class="fa-solid fa-user-pen me-1"></i>Sửa</button>
+                        </td>
+                    </tr>`).join("");
+            } catch (e) { tbody.innerHTML = `<tr><td colspan="4" class="text-center text-danger py-3">Lỗi kết nối hạ tầng mạng.</td></tr>`; }
+        }
+
+        function openEditUser(uid, currentName, currentEmail) {
+            document.getElementById("admin_create_card").classList.add("d-none");
+            document.getElementById("admin_privilege_card").classList.add("d-none");
+            document.getElementById("admin_edit_card").classList.remove("d-none");
+            
+            document.getElementById("edit_uid").value = uid;
+            document.getElementById("edit_uid_display").value = uid;
+            document.getElementById("edit_name").value = currentName;
+            document.getElementById("edit_email").value = currentEmail;
+            document.getElementById("edit_user_result").innerHTML = "";
+        }
+
+        function closeEditUser() {
+            document.getElementById("admin_create_card").classList.remove("d-none");
+            document.getElementById("admin_edit_card").classList.add("d-none");
+            document.getElementById("edit_user_result").innerHTML = "";
+            if (CURRENT_LOGGED_ROLE !== "SUPER_ADMIN") {
+                document.getElementById("admin_create_form_fields").classList.add("d-none");
+                document.getElementById("admin_create_restriction_msg").classList.remove("d-none");
+            }
+        }
+
+        function showPrivilegeCard() {
+            document.getElementById("admin_create_card").classList.add("d-none");
+            document.getElementById("admin_edit_card").classList.add("d-none");
+            document.getElementById("admin_privilege_card").classList.remove("d-none");
+            document.getElementById("priv_result").innerHTML = "";
+        }
+
+        function closePrivilegeCard() {
+            document.getElementById("admin_create_card").classList.remove("d-none");
+            document.getElementById("admin_privilege_card").classList.add("d-none");
+            if (CURRENT_LOGGED_ROLE !== "SUPER_ADMIN") {
+                document.getElementById("admin_create_form_fields").classList.add("d-none");
+                document.getElementById("admin_create_restriction_msg").classList.remove("d-none");
+            }
+        }
+
+        async function executeAdminUpdateUser() {
+            const formData = new FormData();
+            formData.append("user_id", document.getElementById("edit_uid").value);
+            formData.append("new_common_name", document.getElementById("edit_name").value);
+            formData.append("new_email", document.getElementById("edit_email").value);
+            formData.append("admin_user", document.getElementById("admin_username").value);
+            formData.append("admin_pass", document.getElementById("admin_password").value);
+
+            try {
+                const res = await fetch(`${API_BASE}/admin/update-user`, { method: "POST", body: formData });
+                const data = await res.json();
+                if (res.ok) {
+                    showResult("edit_user_result", "success", data.message);
+                    loadAdminUsers();
+                    setTimeout(closeEditUser, 1200);
+                } else { showResult("edit_user_result", "danger", `Lỗi: ${data.detail}`); }
+            } catch (e) { showResult("edit_user_result", "danger", "Lỗi đường truyền mạng!"); }
+        }
+
+        async function executeAssignPrivilege() {
+            const targetUser = document.getElementById("priv_user").value;
+            const targetPass = document.getElementById("priv_pass").value;
+            if(!targetUser || !targetPass) return showResult("priv_result", "danger", "Vui lòng nhập tài khoản và mật khẩu gán quyền mới!");
+
+            const formData = new FormData();
+            formData.append("target_user", targetUser);
+            formData.append("target_pass", targetPass);
+            formData.append("assigned_role", document.getElementById("priv_role").value);
+            formData.append("admin_user", document.getElementById("admin_username").value);
+            formData.append("admin_pass", document.getElementById("admin_password").value);
+
+            try {
+                const res = await fetch(`${API_BASE}/admin/assign-role`, { method: "POST", body: formData });
+                const data = await res.json();
+                if (res.ok) {
+                    showResult("priv_result", "success", data.message);
+                    document.getElementById("priv_user").value = "";
+                    document.getElementById("priv_pass").value = "";
+                } else { showResult("priv_result", "danger", `Lỗi: ${data.detail}`); }
+            } catch (e) { showResult("priv_result", "danger", "Lỗi kết nối mạng!"); }
+        }
+
+        async function unlockAdminPanel() {
+            const user = document.getElementById("admin_username").value;
+            const pass = document.getElementById("admin_password").value;
+            const errDiv = document.getElementById("admin_auth_result");
+            
+            if(!user || !pass) { errDiv.innerHTML = `<div class="alert alert-danger fw-bold rounded-3 small m-0">Vui lòng điền thông tin đăng nhập!</div>`; return; }
+
+            try {
+                const res = await fetch(`${API_BASE}/admin/users?admin_user=${user}&admin_pass=${pass}`);
+                if (res.ok) {
+                    document.getElementById("admin_login_panel").classList.add("d-none");
+                    document.getElementById("admin_main_panel").classList.remove("d-none");
+                    errDiv.innerHTML = "";
+                    
+                    const badge = document.getElementById("txt_admin_role_badge");
+                    const superBtn = document.getElementById("btn_toggle_privilege_panel");
+                    const createFormFields = document.getElementById("admin_create_form_fields");
+                    const restrictionMsg = document.getElementById("admin_create_restriction_msg");
+
+                    // Nhận diện cấp bậc đặc quyền động từ định danh nhập vào
+                    if (user.toLowerCase().includes("super")) {
+                        CURRENT_LOGGED_ROLE = "SUPER_ADMIN";
+                        badge.innerText = "SUPER ADMIN";
+                        badge.className = "badge bg-danger fs-6";
+                        superBtn.classList.remove("d-none");
+                        createFormFields.classList.remove("d-none");
+                        restrictionMsg.classList.add("d-none");
+                    } else {
+                        CURRENT_LOGGED_ROLE = "ADMIN";
+                        badge.innerText = "ADMIN (RA OFFICER)";
+                        badge.className = "badge bg-primary fs-6";
+                        superBtn.classList.add("d-none");
+                        createFormFields.classList.add("d-none");
+                        restrictionMsg.classList.remove("d-none");
+                    }
+                    loadAdminUsers();
+                } else {
+                    const errData = await res.json();
+                    errDiv.innerHTML = `<div class="alert alert-danger fw-bold rounded-3 small m-0"><i class="fa-solid fa-circle-xmark me-2"></i>${errData.detail || 'Sai thông tin quản trị.'}</div>`;
+                }
+            } catch(e) { errDiv.innerHTML = `<div class="alert alert-danger fw-bold rounded-3 small m-0">Lỗi kết nối hạ tầng API.</div>`; }
+        }
+
+        function resetAdminView() {
+            document.getElementById("admin_login_panel").classList.remove("d-none");
+            document.getElementById("admin_main_panel").classList.add("d-none");
+            document.getElementById("admin_username").value = "";
+            document.getElementById("admin_password").value = "";
+            document.getElementById("admin_auth_result").innerHTML = "";
+            document.getElementById("reg_result").innerHTML = "";
+            closeEditUser();
+            closePrivilegeCard();
+        }
+
+        // =========================================================================
+        // PHÂN HỆ THẨM ĐỊNH VÀ GỌI OTP CHO CLIENT
+        // =========================================================================
+        async function requestOTP() {
+            const uid = document.getElementById("sign_uid").value;
+            const pwd = document.getElementById("sign_pwd").value;
+            if(!uid || !pwd) return showResult("sign_result", "danger", "Vui lòng điền đủ Thông tin!");
+
+            const formData = new FormData();
+            formData.append("user_id", uid);
+            formData.append("password", pwd);
+            const btn = document.getElementById("btn_otp");
+            btn.disabled = true; btn.innerHTML = `Đang kết nối...`;
+
+            try {
+                const res = await fetch(`${API_BASE}/pdf/request-signing-otp`, { method: "POST", body: formData });
+                const data = await res.json();
+                if (res.ok) {
+                    document.getElementById("panel_step_1").classList.add("d-none");
+                    document.getElementById("panel_step_2").classList.remove("d-none");
+                    document.getElementById("txt_active_user").innerText = uid;
+                    document.getElementById("sign_result").innerHTML = "";
+                } else { showResult("sign_result", "danger", `Thất bại: ${data.detail}`); }
+            } catch(e) { showResult("sign_result", "danger", "Lỗi kết nối server!"); }
+            finally { btn.disabled = false; btn.innerHTML = `<i class="fa-solid fa-paper-plane me-2"></i>Xác thực & Gửi OTP`; }
+        }
+
+        function backToStep1() {
+            document.getElementById("panel_step_2").classList.add("d-none");
+            document.getElementById("panel_step_1").classList.remove("d-none");
+            document.getElementById("sign_result").innerHTML = "";
+        }
+
+        async function executeSign() {
+            const fileInput = document.getElementById("sign_file");
+            const otpInput = document.getElementById("sign_otp").value;
+            if(fileInput.files.length === 0 || !otpInput) return showResult("sign_result", "danger", "Vui lòng chọn file và nhập OTP!");
+
+            document.getElementById("sign_text").classList.add("d-none");
+            document.getElementById("sign_spinner").classList.remove("d-none");
+            document.getElementById("btn_sign").disabled = true;
+
+            const formData = new FormData();
+            formData.append("user_id", document.getElementById("sign_uid").value);
+            formData.append("password", document.getElementById("sign_pwd").value);
+            formData.append("otp", otpInput);
+            formData.append("file", fileInput.files[0]);
+
+            try {
+                const res = await fetch(`${API_BASE}/pdf/sign-with-otp`, { method: "POST", body: formData });
+                const data = await res.json();
+                if (res.ok) {
+                    const downloadUrl = `${API_BASE}/pdf/download/${data.filename}`;
+                    const successHtml = `🎉 Ký số thành công! <a href="${downloadUrl}" target="_blank" class="btn btn-success btn-sm fw-bold ms-2">Xem & Tải File</a>`;
+                    showResult("sign_result", "success", successHtml);
+                } else { showResult("sign_result", "danger", `Lỗi: ${data.detail}`); }
+            } catch (e) { showResult("sign_result", "danger", "Lỗi mạng!"); }
+            finally { 
+                document.getElementById("sign_text").classList.remove("d-none"); 
+                document.getElementById("sign_spinner").classList.add("d-none"); 
+                document.getElementById("btn_sign").disabled = false; 
+            }
+        }
+
+        async function executeVerify() {
+            const fileInput = document.getElementById("verify_file");
+            if(fileInput.files.length === 0) return alert("Vui lòng chọn tệp PDF!");
+
+            const btn = document.querySelector("#verify button.btn-success");
+            btn.disabled = true; btn.innerHTML = `<span class="spinner-border spinner-border-sm me-2"></span>Đang phân tích mật mã...`;
+            const div = document.getElementById("verify_result");
+            div.innerHTML = "";
+
+            const formData = new FormData();
+            formData.append("file", fileInput.files[0]);
+
+            try {
+                const res = await fetch(`${API_BASE}/pdf/verify`, { method: "POST", body: formData });
+                const data = await res.json();
+                if (res.ok && data.status === "success") {
+                    let cardClass = "border-success";
+                    let headerClass = "bg-success text-white";
+                    let iconClass = "fa-shield-check";
+                    
+                    if (data.code === "ALTERED") { cardClass = "border-danger border-2"; headerClass = "bg-danger text-white"; iconClass = "fa-triangle-exclamation"; } 
+                    else if (data.code === "UNSIGNED") { cardClass = "border-warning border-2"; headerClass = "bg-warning text-dark"; iconClass = "fa-file-circle-exclamation"; } 
+                    else if (data.code === "STRUCT_ERR") { cardClass = "border-dark border-2"; headerClass = "bg-dark text-white"; iconClass = "fa-bug"; }
+
+                    div.innerHTML = `
+                        <div class="card ${cardClass} rounded-3 shadow-sm">
+                            <div class="card-header ${headerClass} fw-bold"><i class="fa-solid ${iconClass} me-2"></i>KẾT QUẢ THẨM ĐỊNH HỆ THỐNG</div>
+                            <div class="card-body">
+                                <p class="card-text fw-bold m-0">${data.status_text}</p>
+                                <hr class="my-2">
+                                <small class="text-muted d-block" id="signer_container"><b>Chủ thể sở hữu chữ ký:</b> </small>
+                            </div>
+                        </div>`;
+
+                    const badge = document.createElement('span');
+                    badge.className = data.code === "UNSIGNED" ? "badge bg-secondary fs-6 mt-1 px-3 py-2" : "badge bg-primary fs-6 mt-1 px-3 py-2";
+                    badge.textContent = data.result.signer;
+                    document.getElementById("signer_container").appendChild(badge);
+                } else { div.innerHTML = `<div class="alert alert-danger fw-bold">Lỗi xử lý luồng dữ liệu từ API.</div>`; }
+            } catch (e) { div.innerHTML = `<div class="alert alert-danger fw-bold">Không thể kết nối API Gateway.</div>`; }
+            finally { btn.disabled = false; btn.innerHTML = `<i class="fa-solid fa-magnifying-glass me-2"></i>BẮT ĐẦU KIỂM TRA VĂN BẢN`; fetchHistoryFromServer(); }
+        }
+
+        async function executeRegister() {
+            const formData = new FormData();
+            formData.append("user_id", document.getElementById("reg_uid").value);
+            formData.append("password", document.getElementById("reg_pwd").value);
+            formData.append("common_name", document.getElementById("reg_name").value);
+            formData.append("email", document.getElementById("reg_email").value);
+            formData.append("admin_user", document.getElementById("admin_username").value);
+            formData.append("admin_pass", document.getElementById("admin_password").value);
+
+            const res = await fetch(`${API_BASE}/user/register`, { method: "POST", body: formData });
+            const data = await res.json();
+            if (res.ok) { 
+                showResult("reg_result", "success", `Hệ thống CA: ${data.message}`);
+                loadAdminUsers();
+                document.getElementById("reg_uid").value = "";
+                document.getElementById("reg_pwd").value = "";
+                document.getElementById("reg_name").value = "";
+                document.getElementById("reg_email").value = "";
+            }
+            else { showResult("reg_result", "danger", `Lỗi: ${data.detail}`); }
+        }
+    </script>
+</body>
+</html>
