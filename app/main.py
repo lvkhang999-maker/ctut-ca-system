@@ -3,6 +3,20 @@ import os
 import sys
 import sqlite3
 import datetime
+import socket
+
+# =========================================================================
+# CLOUD INFRASTRUCTURE SECURITY PATCH: FORCE GLOBAL IPV4 RESOLUTION
+# Bộ vá lỗi cưỡng bức ép hạ tầng phân giải luồng IPv4 toàn cục. Chặn đứng hoàn toàn
+# lỗi [Errno 101] Network is unreachable trên đám mây Render/Linux khi smtplib
+# cố gắng kết nối sang máy chủ Google SMTP qua cổng mạng IPv6 chưa định tuyến.
+# =========================================================================
+_orig_getaddrinfo = socket.getaddrinfo
+def _patched_getaddrinfo(host, port, family=0, *args, **kwargs):
+    # Cưỡng bức chuyển đổi cấu trúc Family về AF_INET (IPv4 tiêu chuẩn)
+    return _orig_getaddrinfo(host, port, socket.AF_INET, *args, **kwargs)
+socket.getaddrinfo = _patched_getaddrinfo
+
 from fastapi import FastAPI, HTTPException, Form, UploadFile, File, Request, Query
 from fastapi.responses import HTMLResponse, FileResponse
 from contextlib import asynccontextmanager
@@ -32,12 +46,10 @@ def init_audit_db():
     os.makedirs(USER_STORAGE, exist_ok=True)
     os.makedirs(CA_DIR, exist_ok=True)
     
-    # 1. ĐỘNG CƠ TỰ PHỤC HỒI ROOT CA: Tạo khóa gốc tự động nếu chạy trên Cloud trống
     root_key_path = os.path.join(CA_DIR, "root_private.pem")
     root_cert_path = os.path.join(CA_DIR, "root_cert.pem")
     
     if not os.path.exists(root_key_path) or not os.path.exists(root_cert_path):
-        # Sinh khóa bí mật dùng đường cong Elliptic SECP256R1 siêu tốc độ
         private_key = ec.generate_private_key(ec.SECP256R1())
         with open(root_key_path, "wb") as f:
             f.write(private_key.private_bytes(
@@ -46,7 +58,6 @@ def init_audit_db():
                 encryption_algorithm=serialization.NoEncryption()
             ))
             
-        # Dựng cấu trúc chứng thư gốc Root CA CTUT (X.509)
         subject = issuer = x509.Name([
             x509.NameAttribute(NameOID.COUNTRY_NAME, "VN"),
             x509.NameAttribute(NameOID.ORGANIZATION_NAME, "CTUT"),
@@ -60,7 +71,7 @@ def init_audit_db():
             .public_key(private_key.public_key())
             .serial_number(x509.random_serial_number())
             .not_valid_before(now)
-            .not_valid_after(now + datetime.timedelta(days=3650)) # Hạn dùng 10 năm
+            .not_valid_after(now + datetime.timedelta(days=3650))
             .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True)
             .sign(private_key, hashes.SHA256())
         )
@@ -105,7 +116,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Hệ thống Hạ tầng Chữ ký số nội bộ CTUT", 
     description="Sản phẩm Nghiên cứu Khoa học - Trung tâm Chuyển đổi số trường ĐH KT-CN Cần Thơ",
-    version="2.6.8",
+    version="2.7.0",
     lifespan=lifespan
 )
 
@@ -116,7 +127,7 @@ def verify_admin_privilege(username, password, required_role=None):
         cursor.execute("SELECT * FROM admin_roles WHERE username = ? AND password = ?", (username, password))
         user = cursor.fetchone()
         if not user:
-            raise HTTPException(status_code=403, detail="Sai thông tài khoản hoặc mật khẩu quản trị.")
+            raise HTTPException(status_code=403, detail="Sai thông tin tài khoản hoặc mật khẩu quản trị.")
         if user["is_active"] == 0:
             raise HTTPException(status_code=403, detail="Tài khoản quản trị này đã bị vô hiệu hóa quyền truy cập.")
         if required_role == "SUPER_ADMIN" and user["role"] != "SUPER_ADMIN":
