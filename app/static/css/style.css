@@ -1,16 +1,123 @@
-/* style.css */
-body { background-color: #f4f7fc; font-family: 'Segoe UI', system-ui, sans-serif; }
-.navbar-custom { background-color: #0f2d59 !important; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-.card-custom { border: none; border-radius: 16px; box-shadow: 0 10px 30px rgba(15,45,89,0.05); background: #ffffff; }
-.nav-pills .nav-link { color: #4a5568; font-weight: 600; border-radius: 10px; padding: 12px 20px; transition: all 0.3s; }
-.nav-pills .nav-link.active { background-color: #0f2d59 !important; color: white !important; }
-.form-control { border-radius: 10px; padding: 12px; border: 1px solid #e2e8f0; }
-.form-control:focus { border-color: #0f2d59; box-shadow: 0 0 0 3px rgba(15,45,89,0.1); }
-.input-group .form-control { border-top-right-radius: 0; border-bottom-right-radius: 0; }
-.input-group .btn { border-top-right-radius: 10px; border-bottom-right-radius: 10px; border: 1px solid #e2e8f0; border-left: none; background: #fff; color: #a0aec0; }
-.btn-action { border-radius: 10px; padding: 12px; font-weight: 600; transition: all 0.2s; }
-.otp-input { letter-spacing: 8px; font-size: 24px; font-weight: bold; text-align: center; color: #0f2d59; background-color: #f8fafc; }
-.wizard-step-header { border-bottom: 2px solid #edf2f7; padding-bottom: 15px; margin-bottom: 25px; }
-.table-custom { border-radius: 10px; overflow: hidden; }
-.table-custom th { background-color: #f8fafc; color: #4a5568; font-weight: 600; font-size: 13px; text-transform: uppercase; }
-.table-custom td { font-size: 14px; vertical-align: middle; }
+*{
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+body {
+    background-color: #f4f7fc;
+    font-family: 'Segoe UI', system-ui, sans-serif;
+}
+
+.navbar-custom {
+    background-color: #0f2d59 !important;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.card-custom {
+    border: none;
+    border-radius: 16px;
+    box-shadow: 0 10px 30px rgba(15, 45, 89, 0.05);
+    background: #ffffff;
+}
+
+.nav-pills .nav-link {
+    color: #4a5568;
+    font-weight: 600;
+    border-radius: 10px;
+    padding: 12px 20px;
+    transition: all 0.3s;
+}
+
+.nav-pills .nav-link.active {
+    background-color: #0f2d59 !important;
+    color: white !important;
+}
+
+.form-control,
+.form-select {
+    border-radius: 10px;
+    padding: 12px;
+    border: 1px solid #e2e8f0;
+}
+
+.form-control:focus,
+.form-select:focus {
+    border-color: #0f2d59;
+    box-shadow: 0 0 0 3px rgba(15, 45, 89, 0.1);
+}
+
+.input-group .form-control {
+    border-top-right-radius: 0;
+    border-bottom-right-radius: 0;
+}
+
+.input-group .btn {
+    border-top-right-radius: 10px;
+    border-bottom-right-radius: 10px;
+    border: 1px solid #e2e8f0;
+    border-left: none;
+    background: #fff;
+    color: #a0aec0;
+}
+
+.btn-action {
+    border-radius: 10px;
+    padding: 12px;
+    font-weight: 600;
+    transition: all 0.2s;
+}
+
+.otp-input {
+    letter-spacing: 8px;
+    font-size: 24px;
+    font-weight: bold;
+    text-align: center;
+    color: #0f2d59;
+    background-color: #f8fafc;
+}
+
+.wizard-step-header {
+    border-bottom: 2px solid #edf2f7;
+    padding-bottom: 15px;
+    margin-bottom: 25px;
+}
+
+.table-custom {
+    border-radius: 10px;
+    overflow: hidden;
+}
+
+.table-custom th {
+    background-color: #f8fafc;
+    color: #4a5568;
+    font-weight: 600;
+    font-size: 13px;
+    text-transform: uppercase;
+    cursor: pointer;
+    user-select: none;
+}
+
+.table-custom td {
+    font-size: 14px;
+    vertical-align: middle;
+}
+
+.clickable-filename {
+    cursor: pointer;
+    color: #0f2d59;
+    transition: color 0.2s;
+    max-width: 220px;
+    display: inline-block;
+}
+
+.clickable-filename:hover {
+    color: #0284c7;
+    text-decoration: underline;
+}
+
+.expanded-text {
+    white-space: normal !important;
+    overflow: visible !important;
+    max-width: none !important;
+    display: block !important;
+}

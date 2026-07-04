@@ -40,7 +40,7 @@ class AuthEngine:
             raise ValueError("Chưa thiết lập biến môi trường tài khoản gửi mail trong file .env")
 
         msg = MIMEMultipart()
-        msg['From'] = f"Trung tâm Chuyển đổi số CTUT <{smtp_user}>"
+        msg['From'] = f"OTP - CTUT <{smtp_user}>"
         msg['To'] = receiver_email
         msg['Subject'] = f"[{otp_code}] Mã OTP xác thực giao dịch ký số từ xa"
 
