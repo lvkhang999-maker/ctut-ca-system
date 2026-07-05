@@ -1030,3 +1030,29 @@ function changeBatchVerifyPage(pageTarget) {
     batchVerifyCurrentPage = pageTarget;
     renderBatchVerifyTable();
 }
+// Thêm hàm này vào thẻ <script> của bạn
+// Hàm dọn dẹp phiên và đưa giao diện về trạng thái ban đầu
+async function logoutUser() {
+    const uid = document.getElementById("sign_uid").value;
+    if (!uid) return;
+
+    const formData = new FormData();
+    formData.append("user_id", uid);
+
+    try {
+        // Gửi cờ hiệu cho Backend thu hồi session của user này
+        await fetch(`${API_BASE}/user/logout`, { method: "POST", body: formData });
+    } catch (e) {
+        console.error("Lỗi ngắt kết nối mạng khi đăng xuất.");
+    } finally {
+        // Khóa Bước 3, Mở lại Bước 1
+        document.getElementById("panel_step_3").classList.add("d-none");
+        document.getElementById("panel_step_1").classList.remove("d-none");
+        
+        // Reset toàn bộ input dữ liệu nhạy cảm
+        document.getElementById("sign_pwd").value = "";
+        document.getElementById("sign_otp").value = "";
+        document.getElementById("sign_file").value = "";
+        document.getElementById("sign_result").innerHTML = "";
+    }
+}

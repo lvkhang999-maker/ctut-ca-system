@@ -487,6 +487,12 @@ async def user_update_profile(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/api/v1/user/logout")
+async def user_logout(user_id: str = Form(...)):
+    if user_id in _user_active_sessions:
+        _user_active_sessions[user_id] = False
+    return {"status": "success", "message": "Đã đăng xuất"}
+
 @app.post("/api/v1/pdf/request-signing-otp")
 async def request_signing_otp(user_id: str = Form(...), password: str = Form(...)):
     key_path = os.path.join(PROJECT_ROOT, "storage", "users", f"{user_id}_private.pem")
@@ -497,7 +503,8 @@ async def request_signing_otp(user_id: str = Form(...), password: str = Form(...
             serialization.load_pem_private_key(f.read(), password=password.encode())
         try:
             # Khi đổi sang luồng 3 bước, xóa trạng thái OTP cũ để cấp mới sạch đệm
-            _user_active_sessions[user_id] = False
+            # _user_active_sessions[user_id] = False |cmt dòng này
+
             AuthEngine.generate_otp(user_id)
             return {"status": "success", "message": "Mã OTP đã được gửi thành công qua Email công vụ."}
         except Exception as e:
@@ -574,21 +581,17 @@ async def sign_documents_in_batch(
         return output_path
 
     try:
-
         for upload in files:
-
             data = await upload.read()
-
             signed_path = await run_in_threadpool(
                 process_single_file,
                 upload,
                 data
             )
-
             signed_paths.append(signed_path)
 
         # Sau khi ký xong thì hủy session OTP
-        _user_active_sessions[user_id] = False
+        # _user_active_sessions[user_id] = False
 
         # Trả về JSON danh sách tên file đã ký để frontend hiển thị bảng
         # chọn/tải từng file qua endpoint /api/v1/pdf/download/{filename}.

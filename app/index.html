@@ -103,6 +103,7 @@
                                 </div>
                             </form>
 
+                            <!-- BƯỚC 3 -->
                             <form id="panel_step_3" class="d-none"
                                 onsubmit="event.preventDefault(); executeBatchSign();">
                                 <div class="d-flex align-items-center justify-content-between wizard-step-header">
@@ -117,13 +118,17 @@
                                     </button>
                                 </div>
                                 <div class="mb-4">
-                                    <label class="form-label small fw-bold text-secondary">Tải lên mảng danh sách văn
-                                        bản PDF cần ký (Hỗ trợ chọn nhiều file)</label>
+                                    <label class="form-label small fw-bold text-secondary">Tải lên danh sách văn bản PDF
+                                        cần ký (Hỗ trợ chọn nhiều file cùng lúc)</label>
                                     <input type="file" id="sign_file" class="form-control" accept=".pdf" multiple>
                                 </div>
                                 <div class="row g-2">
-                                    <div class="col-4"><button type="button" onclick="backToStep2()"
-                                            class="btn btn-outline-secondary w-100 btn-action py-3">Quay lại</button>
+                                    <!-- Đã XÓA nút "Quay lại", THAY THẾ bằng nút "Đăng xuất" -->
+                                    <div class="col-4">
+                                        <button type="button" onclick="logoutUser()"
+                                            class="btn btn-outline-danger w-100 btn-action py-3">
+                                            <i class="fa-solid fa-right-from-bracket me-1"></i> Đăng xuất
+                                        </button>
                                     </div>
                                     <div class="col-8">
                                         <button type="submit" id="btn_sign"
