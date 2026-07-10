@@ -7,6 +7,7 @@ import socket
 import random
 import uuid
 import zipfile
+import urllib.parse
 
 
 from typing import List
@@ -31,6 +32,8 @@ from cryptography import x509
 from cryptography.x509.oid import NameOID
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
+from PIL import Image
+import io
 
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(CURRENT_DIR)
@@ -125,6 +128,18 @@ def init_audit_db():
             )
         """)
         cursor.execute("""
+            CREATE TABLE IF NOT EXISTS signing_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT,
+                filename TEXT,
+                user_id TEXT,
+                signer_name TEXT,
+                status TEXT,
+                detail TEXT,
+                client_ip TEXT
+            )
+        """)
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS admin_roles (
                 username TEXT PRIMARY KEY,
                 password TEXT,
@@ -161,6 +176,50 @@ app.mount(
     StaticFiles(directory=STATIC_DIR),
     name="static"
 )
+
+def build_content_disposition(disposition: str, filename: str) -> str:
+    """Tạo giá trị header Content-Disposition AN TOÀN với tên file có dấu tiếng
+    Việt. QUAN TRỌNG: header HTTP thô chỉ mã hóa được Latin-1 (ISO-8859-1), nên
+    trước đây code gán thẳng f"inline; filename={name}" sẽ khiến server ném
+    UnicodeEncodeError (lỗi 500) ngay khi trả response cho bất kỳ tên file nào
+    chứa ký tự ngoài Latin-1 (vd 'ê', 'ĩ', 'ư'...) - đúng là nguyên nhân lỗi khi
+    bấm "Xem ngay" với văn bản có tên tiếng Việt có dấu.
+    Theo RFC 6266, dùng cú pháp filename*=UTF-8''<percent-encoded> để hỗ trợ ký
+    tự Unicode, kèm fallback filename="..." thuần ASCII cho trình duyệt cũ.
+    """
+    ascii_fallback = filename.encode("ascii", errors="ignore").decode("ascii").strip() or "document.pdf"
+    encoded = urllib.parse.quote(filename)
+    return f'{disposition}; filename="{ascii_fallback}"; filename*=UTF-8\'\'{encoded}'
+
+
+def _get_signer_common_name(user_id: str) -> str:
+    """Đọc Common Name (Họ và Tên) từ chứng thư X.509 của tài khoản, dùng để
+    hiển thị 'Người ký' trong Lịch Sử Ký thay vì chỉ hiện user_id thô."""
+    try:
+        cert_path = os.path.join(USER_STORAGE, f"{user_id}_cert.pem")
+        with open(cert_path, "rb") as f:
+            cert_obj = x509.load_pem_x509_certificate(f.read())
+        attrs = cert_obj.subject.get_attributes_for_oid(NameOID.COMMON_NAME)
+        return attrs[0].value if attrs else user_id
+    except Exception:
+        return user_id
+
+
+def _log_signing_event(filename: str, user_id: str, signer_name: str, status: str, detail: str, client_ip: str):
+    """Ghi 1 dòng lịch sử ký (thành công hoặc thất bại) vào bảng signing_logs.
+    Lỗi ghi log không được làm hỏng luồng ký chính, nên tự nuốt exception."""
+    try:
+        current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO signing_logs (timestamp, filename, user_id, signer_name, status, detail, client_ip)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (current_time, filename, user_id, signer_name, status, detail, client_ip))
+            conn.commit()
+    except Exception:
+        pass
+
 
 def verify_admin_privilege(username, password, required_role=None):
     with sqlite3.connect(DB_PATH) as conn:
@@ -487,6 +546,59 @@ async def user_update_profile(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/api/v1/user/upload-signature")
+async def upload_user_signature(
+    user_id: str = Form(...),
+    current_password: str = Form(...),
+    signature_file: UploadFile = File(...)
+):
+    """Cho phép người dùng tải lên ảnh chữ ký cá nhân (khuyến nghị PNG đã tách nền
+    trong suốt), dùng thay cho logo chung của trường khi đóng dấu ký số."""
+    key_path = os.path.join(USER_STORAGE, f"{user_id}_private.pem")
+    if not os.path.exists(key_path):
+        raise HTTPException(status_code=404, detail="Không tìm thấy tệp hồ sơ mật mã thực thể.")
+
+    try:
+        with open(key_path, "rb") as f:
+            serialization.load_pem_private_key(f.read(), password=current_password.encode())
+    except Exception:
+        raise HTTPException(status_code=401, detail="Xác thực mật khẩu khóa Private hiện tại không chính xác.")
+
+    raw_bytes = await signature_file.read()
+    if not raw_bytes:
+        raise HTTPException(status_code=400, detail="Tệp ảnh chữ ký trống.")
+
+    try:
+        # Chuẩn hóa MỌI định dạng ảnh đầu vào (jpg, webp, png...) về PNG có kênh
+        # alpha (RGBA) để giữ được nền trong suốt nếu ảnh gốc đã tách nền, và để
+        # PdfImage (pyhanko) luôn nhận đúng 1 định dạng thống nhất khi đóng dấu.
+        img = Image.open(io.BytesIO(raw_bytes))
+        img = img.convert("RGBA")
+        out_path = os.path.join(USER_STORAGE, f"{user_id}_signature.png")
+        img.save(out_path, format="PNG")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Tệp tải lên không phải ảnh hợp lệ: {str(e)}")
+
+    return {"status": "success", "message": "Đã cập nhật ảnh chữ ký cá nhân."}
+
+@app.get("/api/v1/user/session-status/{user_id}")
+async def get_user_session_status(user_id: str):
+    """Kiểm tra phiên OTP của tài khoản có còn hiệu lực trên server hay không.
+    Dùng để khôi phục giao diện về đúng Bước 3 sau khi người dùng reload trang
+    (vì trạng thái đăng nhập trước đây chỉ tồn tại trong JS của tab, mất sạch
+    khi F5) mà KHÔNG cần yêu cầu OTP mới nếu phiên cũ vẫn còn hiệu lực."""
+    return {"active": _user_active_sessions.get(user_id) == True}
+
+@app.get("/api/v1/user/signature-preview/{user_id}")
+async def get_user_signature_preview(user_id: str):
+    """Trả về ảnh chữ ký cá nhân (nếu đã tải lên) để hiển thị preview kéo-thả vị
+    trí đóng dấu ở Bước 3. Không yêu cầu mật khẩu vì đây chỉ là ảnh xem trước
+    (không phải khóa bí mật), nhưng chỉ trả về khi tệp thực sự tồn tại."""
+    sig_path = os.path.join(USER_STORAGE, f"{user_id}_signature.png")
+    if not os.path.exists(sig_path):
+        raise HTTPException(status_code=404, detail="Người dùng chưa tải ảnh chữ ký.")
+    return FileResponse(sig_path, media_type="image/png")
+
 @app.post("/api/v1/user/logout")
 async def user_logout(user_id: str = Form(...)):
     if user_id in _user_active_sessions:
@@ -537,9 +649,13 @@ async def verify_otp_only(user_id: str = Form(...), otp: str = Form(...)):
 # =========================================================================
 @app.post("/api/v1/pdf/batch-sign")
 async def sign_documents_in_batch(
+    request: Request,
     user_id: str = Form(...),
     password: str = Form(...),
-    files: List[UploadFile] = File(...)
+    files: List[UploadFile] = File(...),
+    stamp_ratio_x: float = Form(None),
+    stamp_ratio_y: float = Form(None),
+    stamp_page_index: int = Form(0)
 ):
     # Kiểm tra OTP Session
     if _user_active_sessions.get(user_id) != True:
@@ -554,6 +670,9 @@ async def sign_documents_in_batch(
             detail="Không có tệp PDF nào được gửi lên."
         )
 
+    client_ip = request.client.host if request.client else "127.0.0.1"
+    signer_display_name = _get_signer_common_name(user_id)
+
     temp_dir = os.path.join(PROJECT_ROOT, "temp")
     os.makedirs(temp_dir, exist_ok=True)
 
@@ -564,10 +683,8 @@ async def sign_documents_in_batch(
             temp_dir,
             f"in_{uuid.uuid4().hex}_{upload_file.filename}"
         )
-
         output_name = f"signed_{upload_file.filename}"
         output_path = os.path.join(temp_dir, output_name)
-
         with open(input_path, "wb") as f:
             f.write(raw_bytes)
 
@@ -575,54 +692,94 @@ async def sign_documents_in_batch(
             user_id,
             password,
             input_path,
-            output_path
+            output_path,
+            stamp_ratio_x=stamp_ratio_x,
+            stamp_ratio_y=stamp_ratio_y,
+            stamp_page_index=stamp_page_index
         )
-
         return output_path
 
     try:
         for upload in files:
             data = await upload.read()
-            signed_path = await run_in_threadpool(
-                process_single_file,
-                upload,
-                data
-            )
-            signed_paths.append(signed_path)
+            try:
+                signed_path = await run_in_threadpool(
+                    process_single_file,
+                    upload,
+                    data
+                )
+                signed_paths.append(signed_path)
+                _log_signing_event(upload.filename, user_id, signer_display_name, "SUCCESS", None, client_ip)
+            except Exception as file_err:
+                # Ghi lại lỗi cụ thể của file này TRƯỚC KHI re-raise để hủy cả lô,
+                # để "Lịch Sử Ký" vẫn thấy được nguyên nhân thất bại.
+                _log_signing_event(upload.filename, user_id, signer_display_name, "FAILED", str(file_err), client_ip)
+                raise
 
         # Sau khi ký xong thì hủy session OTP
         # _user_active_sessions[user_id] = False
-
-        # Trả về JSON danh sách tên file đã ký để frontend hiển thị bảng
-        # chọn/tải từng file qua endpoint /api/v1/pdf/download/{filename}.
-        # (Trước đây trả FileResponse zip nhị phân, nhưng script.js gọi
-        # res.json() nên bị lỗi parse -> hiện nhầm là "mất kết nối API".)
         return {
             "status": "success",
             "filenames": [os.path.basename(p) for p in signed_paths]
         }
 
     except Exception as e:
-
-        _user_active_sessions[user_id] = False
-
+        # _user_active_sessions[user_id] = False
         raise HTTPException(
             status_code=400,
             detail=f"Lỗi ký số hàng loạt: {str(e)}"
         )
 
+@app.get("/api/v1/pdf/signing-history")
+async def get_signing_history():
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT timestamp, filename, user_id, signer_name, status, detail, client_ip
+                FROM signing_logs
+                ORDER BY id DESC LIMIT 1000
+            """)
+            rows = cursor.fetchall()
+            return [dict(row) for row in rows]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.get("/api/v1/pdf/download/{filename}")
 async def download_file(filename: str):
     temp_dir = os.path.join(PROJECT_ROOT, "temp")
-    possible_names = [filename, f"signed_{filename}", f"check_{filename}", f"signed_batch_{filename}"]
-    for name in possible_names:
+    exact_path = os.path.join(temp_dir, filename)
+    if os.path.exists(exact_path):
+        return FileResponse(
+            exact_path, 
+            media_type="application/pdf",
+            headers={"Content-Disposition": build_content_disposition("inline", filename)}
+        )
+    verify_files = []
+    if os.path.exists(temp_dir):
+        for f in os.listdir(temp_dir):
+            if f.startswith("verify_") and f.endswith(f"_{filename}"):
+                full_path = os.path.join(temp_dir, f)
+                verify_files.append((full_path, os.path.getmtime(full_path)))
+    if verify_files:
+        verify_files.sort(key=lambda x: x[1], reverse=True)
+        latest_verify_path = verify_files[0][0]
+        return FileResponse(
+            latest_verify_path,
+            media_type="application/pdf",
+            headers={"Content-Disposition": build_content_disposition("inline", filename)}
+        )
+    fallback_names = [f"signed_{filename}", f"check_{filename}", f"signed_batch_{filename}"]
+    for name in fallback_names:
         path = os.path.join(temp_dir, name)
         if os.path.exists(path):
             return FileResponse(
                 path, 
                 media_type="application/pdf",
-                headers={"Content-Disposition": f"inline; filename={name}"}
+                headers={"Content-Disposition": build_content_disposition("inline", name)}
             )
+            
     raise HTTPException(status_code=404, detail="Tệp văn bản không tồn tại trên hệ thống lưu trữ tạm.")
 
 @app.post("/api/v1/pdf/download-batch-zip")
@@ -681,23 +838,28 @@ async def verify_documents_batch(request: Request, files: List[UploadFile] = Fil
         
         if "error" in result_data:
             raw_err = result_data["error"]
-            if "Không tìm thấy" in raw_err or "chưa được nhúng" in raw_err:
+            # QUAN TRỌNG: pdf_engine.verify_pdf() trả về đúng chuỗi "Chưa có chữ ký."
+            # khi file chưa từng được ký (embedded_signatures rỗng). Trước đây điều
+            # kiện dưới đây check nhầm "Không tìm thấy"/"chưa được nhúng" - hai cụm
+            # không hề khớp với thông báo lỗi thực tế, khiến MỌI file chưa ký đều
+            # bị rơi xuống nhánh else và báo sai thành STRUCT_ERR.
+            if "Chưa có chữ ký" in raw_err:
                 status_code = "UNSIGNED"
-                status_str = "Tài liệu thuần túy (Unsigned)"
+                status_str = "Chưa được ký số"
                 signer_str = "Chưa có chữ ký"
             else:
                 status_code = "STRUCT_ERR"
-                status_str = "Sai lệch cấu trúc mật mã"
+                status_str = "Lỗi cấu trúc tệp - Không thể xác thực"
                 signer_str = "Không thể bóc tách"
         else:
             is_valid = result_data.get("valid", False)
             is_intact = result_data.get("intact", False)
             if is_valid and is_intact:
                 status_code = "VALID"
-                status_str = "Chữ ký hợp lệ - Toàn vẹn dữ liệu"
+                status_str = "Hợp lệ - Văn bản toàn vẹn"
             elif is_valid and not is_intact:
                 status_code = "ALTERED"
-                status_str = "Cảnh báo: Toàn vẹn dữ liệu bị vi phạm"
+                status_str = "Cảnh báo: Văn bản đã bị chỉnh sửa sau khi ký"
             else:
                 status_code = "INVALID"
                 status_str = "Chữ ký không hợp lệ"
@@ -750,3 +912,4 @@ async def get_verification_history():
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="127.0.0.1", port=8000)
+    # OK

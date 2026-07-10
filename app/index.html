@@ -8,6 +8,7 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     <link rel="stylesheet" href="/static/css/style.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 </head>
 
 <body>
@@ -39,6 +40,11 @@
                                 type="button"><i class="fa-solid fa-circle-check me-2"></i>Xác Thực Công Khai</button>
                         </li>
                         <li class="nav-item">
+                            <button class="nav-link" id="signhistory-tab" data-bs-toggle="pill"
+                                data-bs-target="#signhistory" type="button"><i
+                                    class="fa-solid fa-clock-rotate-left me-2"></i>Lịch Sử Ký</button>
+                        </li>
+                        <li class="nav-item">
                             <button class="nav-link" id="admin-tab" data-bs-toggle="pill" data-bs-target="#admin"
                                 type="button"><i class="fa-solid fa-user-gear me-2"></i>Cổng Quản Trị</button>
                         </li>
@@ -54,6 +60,18 @@
                         <div class="card card-custom p-4 p-md-5">
 
                             <form id="panel_step_1" onsubmit="event.preventDefault(); executeRequestOTP();">
+                                <div id="resume_session_banner"
+                                    class="alert alert-success border-0 rounded-3 mb-4 d-none">
+                                    <i class="fa-solid fa-circle-check me-1"></i>
+                                    Phiên OTP của tài khoản <span id="resume_session_uid" class="fw-bold"></span> vẫn
+                                    còn hiệu lực.
+                                    Nhập lại mật khẩu bên dưới rồi bấm nút này để tiếp tục ký ngay, <b>không cần xin mã
+                                        OTP mới</b>.
+                                    <button type="button" class="btn btn-success btn-sm fw-bold w-100 mt-2"
+                                        onclick="resumeSessionContinueSigning()">
+                                        <i class="fa-solid fa-arrow-right me-1"></i> Tiếp tục ký ngay
+                                    </button>
+                                </div>
                                 <div class="d-flex align-items-center wizard-step-header">
                                     <span class="badge bg-danger rounded-circle me-3 px-3 py-2 fs-6">1</span>
                                     <h4 class="m-0 fw-bold text-danger">Bước 1: Đăng Nhập Hệ Thống</h4>
@@ -103,7 +121,6 @@
                                 </div>
                             </form>
 
-                            <!-- BƯỚC 3 -->
                             <form id="panel_step_3" class="d-none"
                                 onsubmit="event.preventDefault(); executeBatchSign();">
                                 <div class="d-flex align-items-center justify-content-between wizard-step-header">
@@ -111,31 +128,78 @@
                                         <span class="badge bg-success rounded-circle me-3 px-3 py-2 fs-6">3</span>
                                         <h4 class="m-0 fw-bold text-success">Bước 3: Tải Lên Văn Bản & Ký Số</h4>
                                     </div>
-                                    <button type="button"
-                                        class="btn btn-sm btn-outline-dark rounded-3 fw-bold px-3 py-2 shadow-sm"
-                                        data-bs-toggle="modal" data-bs-target="#userSelfUpdateModal">
-                                        <i class="fa-solid fa-user-pen me-1 text-primary"></i> Sửa thông tin
-                                    </button>
+                                    <div class="d-flex align-items-center gap-3">
+                                        <!-- Khung hiển thị ảnh chữ ký xem trước -->
+                                        <img id="header_signature_preview" src="/static/images/logo_ctut.png"
+                                            alt="Chữ ký hiện tại" title="Chữ ký sẽ được sử dụng đóng dấu"
+                                            style="height: 35px; max-width: 120px; object-fit: contain; border: 1px dashed #ccc; padding: 2px; border-radius: 4px; background-color: #f8f9fa;">
+                                        <button type="button"
+                                            class="btn btn-sm btn-outline-dark rounded-3 fw-bold px-3 py-2 shadow-sm"
+                                            data-bs-toggle="modal" data-bs-target="#userSelfUpdateModal">
+                                            <i class="fa-solid fa-user-pen me-1 text-primary"></i> Thông tin cá nhân
+                                        </button>
+                                    </div>
                                 </div>
                                 <div class="mb-4">
-                                    <label class="form-label small fw-bold text-secondary">Tải lên danh sách văn bản PDF
-                                        cần ký (Hỗ trợ chọn nhiều file cùng lúc)</label>
-                                    <input type="file" id="sign_file" class="form-control" accept=".pdf" multiple>
+                                    <label class="form-label small fw-bold text-secondary">Tải lên mảng danh sách văn
+                                        bản PDF cần ký (Hỗ trợ chọn nhiều file)</label>
+                                    <input type="file" id="sign_file" class="form-control" accept=".pdf" multiple
+                                        onchange="handleSignFilesSelected(this)">
+                                </div>
+
+                                <div id="stamp_position_picker" class="mb-4 d-none">
+                                    <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+                                        <label class="form-label small fw-bold text-secondary m-0">
+                                            <i class="fa-solid fa-arrows-up-down-left-right me-1 text-primary"></i>
+                                            Kéo khung xanh để chọn vị trí đóng dấu (áp dụng cho toàn bộ các văn bản)
+                                        </label>
+                                        <button type="button" class="btn btn-sm btn-link text-secondary p-0"
+                                            onclick="resetStampPosition()">Đặt lại mặc định</button>
+                                    </div>
+                                    <div class="d-flex align-items-center gap-2 mb-2">
+                                        <button type="button" class="btn btn-sm btn-outline-secondary"
+                                            onclick="changeStampPreviewPage(-1)"><i
+                                                class="fa-solid fa-angle-left"></i></button>
+                                        <span class="small fw-semibold text-secondary" id="stamp_page_indicator">Trang 1
+                                            / 1</span>
+                                        <button type="button" class="btn btn-sm btn-outline-secondary"
+                                            onclick="changeStampPreviewPage(1)"><i
+                                                class="fa-solid fa-angle-right"></i></button>
+                                        <span class="small text-muted">(Chọn trang muốn đóng dấu trong văn bản đầu
+                                            tiên)</span>
+                                    </div>
+                                    <div id="stamp_preview_wrapper"
+                                        style="position:relative; display:inline-block; border:1px solid #dee2e6; border-radius:6px; overflow:hidden; max-width:100%;">
+                                        <canvas id="stamp_preview_canvas"
+                                            style="display:block; max-width:100%;"></canvas>
+                                        <div id="stamp_drag_box"
+                                            style="position:absolute; border:2px dashed #000000; background:rgba(0,0,0,0.05); cursor:grab; user-select:none; overflow:hidden;">
+                                            <div id="stamp_preview_sig_area"
+                                                style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center;">
+                                                <img id="stamp_preview_sig_img" src="" class="d-none"
+                                                    style="max-width:80%; max-height:80%; object-fit:contain; opacity:0.85;">
+                                                <span id="stamp_preview_sig_placeholder" class="text-muted"
+                                                    style="font-size:9px; text-align:center; line-height:1.2;">Ảnh<br>chữ
+                                                    ký</span>
+                                            </div>
+                                            <div id="stamp_preview_text_area"
+                                                style="position:absolute; right:2px; bottom:2px; font-size:6px; line-height:1.2; color:#000; text-align:right; background:rgba(255,255,255,0.6); padding:1px 2px; border-radius:2px;">
+                                                Ký bởi: ...<br>Thời gian: ...
+                                            </div>
+                                        </div>
+                                    </div>
                                 </div>
                                 <div class="row g-2">
-                                    <!-- Đã XÓA nút "Quay lại", THAY THẾ bằng nút "Đăng xuất" -->
-                                    <div class="col-4">
-                                        <button type="button" onclick="logoutUser()"
-                                            class="btn btn-outline-danger w-100 btn-action py-3">
-                                            <i class="fa-solid fa-right-from-bracket me-1"></i> Đăng xuất
-                                        </button>
+                                    <div class="col-4"><button type="button" onclick="logoutUser()"
+                                            class="btn btn-outline-danger w-100 btn-action py-3"><i
+                                                class="fa-solid fa-right-from-bracket me-1"></i>Đăng xuất</button>
                                     </div>
                                     <div class="col-8">
                                         <button type="submit" id="btn_sign"
                                             class="btn btn-primary w-100 btn-action py-3"
                                             style="background-color: #0f2d59; border:none;">
-                                            <span id="sign_text"><i class="fa-solid fa-signature me-2"></i>KÝ SỐ ĐIỆN TỬ
-                                                ĐỒNG LOẠT</span>
+                                            <span id="sign_text"><i class="fa-solid fa-signature me-2"></i>KÝ SỐ ĐIỆN
+                                                TỬ</span>
                                             <span id="sign_spinner"
                                                 class="spinner-border spinner-border-sm d-none"></span>
                                         </button>
@@ -157,11 +221,9 @@
                             <h4 class="fw-bold">Thẩm Định Văn Bản Số Công Khai</h4>
                             <div class="w-100 mb-3">
                                 <input type="file" id="verify_file" class="form-control mb-3" accept=".pdf" multiple>
-                                <div class="form-text text-muted mb-3 text-start">Hỗ trợ chọn và kéo thả nhiều văn bản
-                                    PDF cùng lúc.</div>
                                 <button onclick="executeVerify()"
                                     class="btn btn-success btn-action py-3 w-100 fw-bold"><i
-                                        class="fa-solid fa-magnifying-glass me-2"></i>BẮT ĐẦU KIỂM TRA VĂN BẢN</button>
+                                        class="fa-solid fa-magnifying-glass me-2"></i>KIỂM TRA VĂN BẢN</button>
                             </div>
                             <div id="verify_result" class="mt-4 text-start"></div>
                         </div>
@@ -181,16 +243,18 @@
                                         <span class="input-group-text bg-white border-end-0 text-muted"><i
                                                 class="fa-solid fa-magnifying-glass"></i></span>
                                         <input type="text" id="log_search" class="form-control border-start-0 ps-0"
-                                            placeholder="Tìm kiếm tên văn bản hoặc người ký...">
+                                            placeholder="Tên văn bản hoặc người ký...">
                                     </div>
                                 </div>
                                 <div class="col-6 col-md-4">
                                     <select id="log_filter_status" class="form-select"
                                         onchange="handleLogSearchAndFilter()">
                                         <option value="ALL">-- Tất cả trạng thái mật mã --</option>
-                                        <option value="HỢP LỆ">Chữ ký hợp lệ - Toàn vẹn dữ liệu</option>
-                                        <option value="BỊ CHỈNH SỬA">Cảnh báo: Toàn vẹn dữ liệu bị vi phạm</option>
-                                        <option value="Tài liệu thuần túy">Tài liệu thuần túy (Unsigned)</option>
+                                        <option value="Hợp lệ - Văn bản toàn vẹn">Hợp lệ - Văn bản toàn vẹn</option>
+                                        <option value="chỉnh sửa">Cảnh báo: Văn bản đã bị chỉnh sửa sau khi ký</option>
+                                        <option value="không hợp lệ">Chữ ký không hợp lệ</option>
+                                        <option value="Chưa được ký số">Chưa được ký số</option>
+                                        <option value="cấu trúc">Lỗi cấu trúc tệp - Không thể xác thực</option>
                                     </select>
                                 </div>
                                 <div class="col-6 col-md-3">
@@ -233,6 +297,79 @@
                                     bản ghi</small>
                                 <nav>
                                     <ul class="pagination pagination-sm m-0" id="log_pagination_controls"></ul>
+                                </nav>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="tab-pane fade" id="signhistory" role="tabpanel">
+                <div class="row justify-content-center">
+                    <div class="col-12 col-md-11 col-lg-10">
+                        <div class="card card-custom p-4">
+                            <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-4">
+                                <h5 class="fw-bold m-0 text-dark"><i
+                                        class="fa-solid fa-signature me-2 text-primary"></i>Lịch Sử Ký Số</h5>
+                                <button onclick="fetchSigningHistoryFromServer()"
+                                    class="btn btn-light btn-sm border text-secondary px-3"><i
+                                        class="fa-solid fa-rotate me-1"></i>Làm mới</button>
+                            </div>
+                            <div class="row g-2 mb-3">
+                                <div class="col-12 col-md-5">
+                                    <div class="input-group">
+                                        <span class="input-group-text bg-white border-end-0 text-muted"><i
+                                                class="fa-solid fa-magnifying-glass"></i></span>
+                                        <input type="text" id="sign_log_search" class="form-control border-start-0 ps-0"
+                                            placeholder="Tìm kiếm tên văn bản hoặc tài khoản ký...">
+                                    </div>
+                                </div>
+                                <div class="col-6 col-md-4">
+                                    <select id="sign_log_filter_status" class="form-select"
+                                        onchange="handleSignLogSearchAndFilter()">
+                                        <option value="ALL">-- Tất cả trạng thái --</option>
+                                        <option value="SUCCESS">Ký thành công</option>
+                                        <option value="FAILED">Ký thất bại</option>
+                                    </select>
+                                </div>
+                                <div class="col-6 col-md-3">
+                                    <select id="sign_log_rows_per_page" class="form-select"
+                                        onchange="handleSignLogRowsPerPageChange()">
+                                        <option value="5">5 dòng / trang</option>
+                                        <option value="10" selected>10 dòng / trang</option>
+                                        <option value="25">25 dòng / trang</option>
+                                        <option value="50">50 dòng / trang</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="table-responsive">
+                                <table class="table table-custom table-hover border align-middle m-0">
+                                    <thead>
+                                        <tr>
+                                            <th onclick="handleSignLogSort('timestamp')">Thời gian <i
+                                                    class="fa-solid fa-sort small ms-1 text-muted"></i></th>
+                                            <th onclick="handleSignLogSort('filename')" style="width: 30%;">Tên tệp tin
+                                                PDF <i class="fa-solid fa-sort small ms-1 text-muted"></i></th>
+                                            <th onclick="handleSignLogSort('signer_name')">Người ký <i
+                                                    class="fa-solid fa-sort small ms-1 text-muted"></i></th>
+                                            <th onclick="handleSignLogSort('status')">Trạng thái <i
+                                                    class="fa-solid fa-sort small ms-1 text-muted"></i></th>
+                                            <th>Ghi chú</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="sign_history_table_body">
+                                        <tr>
+                                            <td colspan="5" class="text-center text-muted py-4">Đang nạp dữ liệu lịch sử
+                                                ký...</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                            <div class="d-flex flex-wrap justify-content-between align-items-center mt-3 gap-2">
+                                <small class="text-muted fw-semibold" id="sign_log_pagination_info">Hiển thị 0 - 0 trong
+                                    0 bản ghi</small>
+                                <nav>
+                                    <ul class="pagination pagination-sm m-0" id="sign_log_pagination_controls"></ul>
                                 </nav>
                             </div>
                         </div>
@@ -374,7 +511,7 @@
                                             class="card border p-4 rounded-3 shadow-sm bg-white h-100"
                                             onsubmit="event.preventDefault(); executeRegister();">
                                             <h5 class="fw-bold text-success mb-4"><i
-                                                    class="fa-solid fa-user-plus me-2"></i>Cấp Phát Chứng Thư Số Mới
+                                                    class="fa-solid fa-user-plus me-2"></i>Cấp Phát Chứng Thư Số Mới
                                             </h5>
                                             <div id="admin_create_restriction_msg"
                                                 class="alert alert-warning small fw-bold d-none">
@@ -527,6 +664,23 @@
                         </button>
                         <div id="user_self_result" class="mt-3 text-center small"></div>
                     </form>
+
+                    <hr class="my-4">
+
+                    <div>
+                        <label class="form-label small fw-bold text-muted m-0">
+                            <i class="fa-solid fa-signature me-1 text-primary"></i>
+                            Ảnh chữ ký cá nhân (khuyến nghị PNG đã tách nền trong suốt)
+                        </label>
+                        <div class="text-muted small mb-2">Ảnh này sẽ thay cho logo mặc định của trường khi đóng dấu ký
+                            số.</div>
+                        <input type="file" id="user_self_signature_file" class="form-control mb-2" accept="image/*">
+                        <button type="button" class="btn btn-outline-primary fw-bold w-100 py-2"
+                            onclick="executeUploadSignature()">
+                            <i class="fa-solid fa-upload me-1"></i> Tải lên ảnh chữ ký
+                        </button>
+                        <div id="user_self_signature_result" class="mt-3 text-center small"></div>
+                    </div>
                 </div>
             </div>
         </div>

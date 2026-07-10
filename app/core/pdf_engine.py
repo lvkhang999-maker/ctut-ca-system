@@ -1,19 +1,56 @@
-# app/core/pdf_engine.py
 import os
-from pypdf import PdfReader, PdfWriter
+import datetime
+import uuid
+import inspect
 from cryptography import x509
 from cryptography.x509.oid import NameOID
+from pyhanko.pdf_utils.reader import PdfFileReader
 from pyhanko.pdf_utils.incremental_writer import IncrementalPdfFileWriter
+from pyhanko.pdf_utils.images import PdfImage
+from pyhanko.pdf_utils.layout import SimpleBoxLayoutRule, AxisAlignment, Margins
+from pyhanko.pdf_utils.text import TextBoxStyle
+from pyhanko.pdf_utils.font.opentype import GlyphAccumulatorFactory
 from pyhanko.sign import fields, signers
+from pyhanko.stamp import TextStampStyle
 from pyhanko.sign.validation import validate_pdf_signature
+from pypdf import PdfReader, PdfWriter
 
-STORAGE_USERS = "storage/users"
-STORAGE_CA = "storage/ca"
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(os.path.dirname(CURRENT_DIR))
+STORAGE_USERS = os.path.join(PROJECT_ROOT, "storage", "users")
+
+# Đường dẫn logo dùng làm nền con dấu ký thay cho icon mặc định của pyhanko.
+LOGO_PATH = os.path.join(PROJECT_ROOT, "app", "static", "images", "logo_ctut.png")
+
+# Font TTF hỗ trợ Unicode đầy đủ (tiếng Việt có dấu). Font mặc định của pyhanko
+# (Type1/Helvetica) KHÔNG hỗ trợ ký tự có dấu -> gây lỗi hiển thị kiểu "þÿ K ý b ß i".
+FONT_PATH = os.path.join(PROJECT_ROOT, "app", "static", "fonts", "NotoSans-Italic-VariableFont_wdth,wght.ttf")
+
+# ==== Cấu hình vị trí & hình thức khung ký (dễ chỉnh sau này) ====
+STAMP_MARGIN_TOP = 18      # khoảng cách từ mép TRÊN trang xuống khung ký (points)
+STAMP_MARGIN_LEFT = 18     # khoảng cách từ mép TRÁI trang (points)
+STAMP_WIDTH = 170          # thu nhỏ chiều rộng khung ký (trước đây 230)
+STAMP_HEIGHT = 55
+STAMP_GAP_BETWEEN_SIGS = 62   # khoảng hạ xuống cho mỗi chữ ký kế tiếp trên cùng 1 văn bản
+STAMP_BORDER_COLOR = (0, 0, 0)  # màu viền khung ký: ĐEN (trước đây xanh lá pastel)
+STAMP_BORDER_WIDTH = 1.2
+
+# Một số bản pyhanko cũ hơn KHÔNG có tham số border_color trong TextStampStyle
+# (chỉ được thêm ở các bản mới hơn). Để không bị crash "unexpected keyword argument"
+# trên các server đang dùng bản pyhanko cũ, ta kiểm tra tham số được hỗ trợ trước
+# khi truyền vào, thay vì hard-code luôn border_color.
+_TEXTSTAMPSTYLE_PARAMS = set(inspect.signature(TextStampStyle.__init__).parameters)
+
+def _build_stamp_style(**kwargs):
+    """Tạo TextStampStyle, tự động lược bỏ các tham số mà phiên bản pyhanko
+    hiện tại không hỗ trợ (vd: border_color trên bản cũ) để tránh crash."""
+    supported_kwargs = {k: v for k, v in kwargs.items() if k in _TEXTSTAMPSTYLE_PARAMS}
+    return TextStampStyle(**supported_kwargs)
 
 class PDFEngine:
     @staticmethod
     def sanitize_pdf(input_path: str, output_path: str):
-        """Tiền xử lý cấu hình đối tượng nhị phân PDF để loại bỏ Hybrid Xrefs"""
+        """Tiền xử lý file: CHỈ ÁP DỤNG KHI FILE CHƯA TỪNG BỊ KÝ"""
         reader = PdfReader(input_path)
         writer = PdfWriter()
         for page in reader.pages:
@@ -22,92 +59,244 @@ class PDFEngine:
             writer.write(f)
 
     @staticmethod
-    def sign_pdf(user_id: str, user_password: str, input_pdf_path: str, output_pdf_path: str):
+    def sign_pdf(user_id: str, user_password: str, input_pdf_path: str, output_pdf_path: str,
+                 stamp_ratio_x: float = None, stamp_ratio_y: float = None, stamp_page_index: int = 0):
+        """
+        stamp_ratio_x, stamp_ratio_y: vị trí GÓC TRÊN-TRÁI của khung ký, tính theo TỶ LỆ
+        (0.0 - 1.0) so với chiều rộng/cao TRANG ĐƯỢC CHỌN, do người dùng kéo-thả chọn
+        ở giao diện. Nếu không truyền (None), dùng lại vị trí mặc định neo theo
+        STAMP_MARGIN_TOP/LEFT (góc trên-trái) như hành vi cũ.
+        stamp_page_index: số thứ tự trang (đếm từ 0) mà người dùng chọn để đóng dấu.
+        Mặc định 0 (trang đầu tiên) để tương thích ngược với các lời gọi cũ.
+        """
         key_path = os.path.join(STORAGE_USERS, f"{user_id}_private.pem")
         cert_path = os.path.join(STORAGE_USERS, f"{user_id}_cert.pem")
         
         if not os.path.exists(key_path) or not os.path.exists(cert_path):
-            raise FileNotFoundError("Hồ sơ cặp khóa hoặc chứng thư số của người dùng không tồn tại.")
+            raise FileNotFoundError("Không tìm thấy chứng thư số hoặc khóa bí mật.")
             
-        temp_sanitized_path = input_pdf_path + ".sanitized"
-        PDFEngine.sanitize_pdf(input_pdf_path, temp_sanitized_path)
+        # 1. Đếm số lượng chữ ký hiện có để quyết định tọa độ Offset và bảo vệ toàn vẹn
+        sig_count = 0
+        detection_failed = False
+        try:
+            with open(input_pdf_path, 'rb') as inf:
+                reader = PdfFileReader(inf)
+                sig_count = len(reader.embedded_signatures)
+        except Exception:
+            # QUAN TRỌNG: nếu không xác định được có chữ ký hay không, TUYỆT ĐỐI
+            # không được coi như "chưa có chữ ký" (sig_count = 0), vì bước sanitize
+            # bên dưới sẽ ghi lại toàn bộ PDF bằng pypdf và phá vỡ hash của bất kỳ
+            # chữ ký nào đã tồn tại trước đó -> gây lỗi/hỏng file khi ký lần 2 trở đi.
+            # An toàn hơn là bỏ qua sanitize khi không chắc chắn.
+            detection_failed = True
+
+        # 2. Chỉ sanitize khi CHẮC CHẮN file chưa từng có chữ ký nào.
+        #    Nếu việc phát hiện thất bại, coi như "có thể đã có chữ ký" để tránh phá hỏng.
+        if sig_count == 0 and not detection_failed:
+            target_input_path = input_pdf_path + ".sanitized"
+            PDFEngine.sanitize_pdf(input_pdf_path, target_input_path)
+            must_clean = True
+        else:
+            target_input_path = input_pdf_path
+            must_clean = False
             
-        signer = signers.SimpleSigner.load(
-            key_file=key_path,
-            cert_file=cert_path,
-            key_passphrase=user_password.encode()
+        # 3. Nạp hồ sơ Khóa bất đối xứng
+        signer_obj = signers.SimpleSigner.load(
+            key_file=key_path, cert_file=cert_path, key_passphrase=user_password.encode()
         )
         
         try:
             with open(cert_path, "rb") as f:
                 cert_obj = x509.load_pem_x509_certificate(f.read())
-                attrs = cert_obj.subject.get_attributes_for_oid(NameOID.COMMON_NAME)
-                signer_real_name = attrs[0].value if attrs else user_id
+                name_attrs = cert_obj.subject.get_attributes_for_oid(NameOID.COMMON_NAME)
+                signer_real_name = name_attrs[0].value if name_attrs else user_id
+
+                # Chức vụ: ưu tiên NameOID.TITLE, fallback sang Organizational Unit nếu không có
+                title_attrs = cert_obj.subject.get_attributes_for_oid(NameOID.TITLE)
+                if not title_attrs:
+                    title_attrs = cert_obj.subject.get_attributes_for_oid(NameOID.ORGANIZATIONAL_UNIT_NAME)
+                signer_title = title_attrs[0].value if title_attrs else ""
         except Exception:
             signer_real_name = user_id
+            signer_title = ""
         
+        # 4. Thuật toán Cập nhật dồn tích (Incremental Update)
         try:
-            with open(temp_sanitized_path, 'rb') as inf:
+            with open(target_input_path, 'rb') as inf:
                 w = IncrementalPdfFileWriter(inf)
-                fields.append_signature_field(w, sig_field_spec=fields.SigFieldSpec(sig_field_name='Signature_CTUT'))
-                
-                with open(output_pdf_path, 'wb') as outf:
-                    signers.sign_pdf(
-                        w, 
-                        signers.PdfSignatureMetadata(field_name='Signature_CTUT', name=str(signer_real_name)), 
-                        signer=signer, 
-                        output=outf
+
+                # Tạo Định danh Field ID độc nhất tránh xung đột các lớp chữ ký
+                unique_sig_id = f"Signature_CTUT_{user_id}_{uuid.uuid4().hex[:6]}"
+
+                # Lấy chiều rộng/cao THẬT của TRANG ĐƯỢC CHỌN (không hard-code 842x595
+                # A4, và không còn cố định trang đầu tiên). Đây cũng là chỗ từng thiếu
+                # page_width (BUG: chỉ tính page_height) khiến ký theo vị trí kéo-thả
+                # bị lỗi "name 'page_width' is not defined".
+                pages_kids = w.root['/Pages']['/Kids']
+                # Kẹp chỉ số trang trong biên hợp lệ [0, số trang - 1] để tránh lỗi
+                # IndexError nếu frontend lỡ gửi số trang không hợp lệ.
+                safe_page_index = max(0, min(stamp_page_index or 0, len(pages_kids) - 1))
+                target_page = pages_kids[safe_page_index].get_object()
+                media_box = target_page['/MediaBox']
+                page_width = float(media_box[2]) - float(media_box[0])
+                page_height = float(media_box[3]) - float(media_box[1])
+
+                # Tính toán tọa độ khung ký:
+                # - Nếu người dùng đã kéo-thả chọn vị trí (stamp_ratio_x/y khác None):
+                #   dùng đúng vị trí đó, quy đổi từ tỷ lệ (0-1) sang điểm PDF thực tế.
+                #   Trục Y của PDF tính từ DƯỚI lên, còn ratio_y người dùng chọn trên
+                #   giao diện tính từ TRÊN xuống (giống ảnh xem trước) nên phải đảo lại.
+                # - Nếu không có (lời gọi cũ / API cũ chưa gửi vị trí): giữ hành vi mặc
+                #   định như trước - neo góc trên-trái, tự hạ dần cho mỗi chữ ký kế tiếp.
+                offset = sig_count * STAMP_GAP_BETWEEN_SIGS
+                if stamp_ratio_x is not None and stamp_ratio_y is not None:
+                    box_x1 = stamp_ratio_x * page_width
+                    box_y2 = page_height - (stamp_ratio_y * page_height) - offset
+                    box_y1 = box_y2 - STAMP_HEIGHT
+                    box_x2 = box_x1 + STAMP_WIDTH
+                    # Kẹp trong biên trang để khung ký không bị trôi ra ngoài khi kéo sát mép.
+                    box_x1 = max(0, min(box_x1, page_width - STAMP_WIDTH))
+                    box_x2 = box_x1 + STAMP_WIDTH
+                else:
+                    box_y2 = page_height - STAMP_MARGIN_TOP - offset
+                    box_y1 = box_y2 - STAMP_HEIGHT
+                    box_x1 = STAMP_MARGIN_LEFT
+                    box_x2 = STAMP_MARGIN_LEFT + STAMP_WIDTH
+
+                stamping_box = (box_x1, max(10, box_y1), box_x2, max(10 + STAMP_HEIGHT, box_y2))
+
+                # Nội dung chữ hiển thị cạnh logo: Tên người ký + Chức vụ + Thời gian ký.
+                # (%(signer)s và %(ts)s được pyhanko tự động thay thế khi ký)
+                stamp_lines = [f"Ký bởi: {signer_real_name}"]
+                if signer_title:
+                    stamp_lines.append(f"Chức vụ: {signer_title}")
+                stamp_lines.append("Thời gian: %(ts)s")
+                stamp_text = "\n".join(stamp_lines)
+
+                # Ưu tiên dùng ảnh chữ ký CÁ NHÂN của người dùng (đã tách nền, tự tải lên)
+                # thay cho logo chung của trường. Nếu người dùng chưa từng tải ảnh chữ ký
+                # riêng, fallback về logo mặc định như hành vi cũ.
+                user_signature_path = os.path.join(STORAGE_USERS, f"{user_id}_signature.png")
+                if os.path.exists(user_signature_path):
+                    background_image = PdfImage(user_signature_path)
+                elif os.path.exists(LOGO_PATH):
+                    background_image = PdfImage(LOGO_PATH)
+                else:
+                    background_image = None
+
+                # Dùng font TTF hỗ trợ Unicode để hiển thị đúng tiếng Việt có dấu.
+                # Nếu thiếu file font thì dùng lại font mặc định (sẽ bị lỗi dấu, nhưng
+                # không làm crash chương trình).
+                # Font size giảm (8 -> 6) theo yêu cầu thu nhỏ thông tin "Ký bởi/Thời gian".
+                text_box_style = (
+                    TextBoxStyle(font=GlyphAccumulatorFactory(FONT_PATH), font_size=6)
+                    if os.path.exists(FONT_PATH) else TextBoxStyle(font_size=6)
+                )
+
+                stamp_style = _build_stamp_style(
+                    stamp_text=stamp_text,
+                    background=background_image,
+                    background_layout=SimpleBoxLayoutRule(
+                        x_align=AxisAlignment.ALIGN_MID,
+                        y_align=AxisAlignment.ALIGN_MID,
+                    ),
+                    background_opacity=0.22,
+                    text_box_style=text_box_style,
+                    # Đưa khối chữ "Ký bởi/Thời gian" vào GÓC PHẢI-DƯỚI bên trong khung
+                    # (ALIGN_MAX theo trục X = phải, ALIGN_MIN theo trục Y = dưới, vì
+                    # trục Y của PDF tính từ dưới lên). Chỉ ảnh hưởng vị trí khối chữ,
+                    # tách biệt hoàn toàn với vị trí ảnh chữ ký nền (background_layout).
+                    inner_content_layout=SimpleBoxLayoutRule(
+                        x_align=AxisAlignment.ALIGN_MAX,
+                        y_align=AxisAlignment.ALIGN_MIN,
+                        margins=Margins(left=2, right=4, top=2, bottom=3),
+                    ),
+                    border_width=STAMP_BORDER_WIDTH,
+                    border_color=STAMP_BORDER_COLOR,
+                )
+
+                fields.append_signature_field(
+                    w, sig_field_spec=fields.SigFieldSpec(
+                        sig_field_name=unique_sig_id, 
+                        on_page=safe_page_index,
+                        box=stamping_box
                     )
+                )
+
+                pdf_signer = signers.PdfSigner(
+                    signers.PdfSignatureMetadata(field_name=unique_sig_id),
+                    signer=signer_obj,
+                    stamp_style=stamp_style,
+                )
+
+                with open(output_pdf_path, 'wb') as outf:
+                    pdf_signer.sign_pdf(w, output=outf)
         finally:
-            if os.path.exists(temp_sanitized_path):
-                os.remove(temp_sanitized_path)
-                
-        return "[+] Đã đóng dấu ký số PDF thành công."
+            if must_clean and os.path.exists(target_input_path):
+                os.remove(target_input_path)
 
     @staticmethod
     def verify_pdf(pdf_path: str):
         with open(pdf_path, 'rb') as f:
-            w = IncrementalPdfFileWriter(f)
             try:
+                w = IncrementalPdfFileWriter(f)
                 if not w.prev.embedded_signatures:
-                    return {"valid": False, "error": "Không tìm thấy cấu trúc chữ ký số trong tài liệu."}
+                    return {"valid": False, "error": "Chưa có chữ ký."}
                 
-                sig = w.prev.embedded_signatures[0]
-                status = validate_pdf_signature(sig)
-                
-                signer_name = ""
-                try:
-                    if '/Name' in sig.sig_object:
-                        signer_name = str(sig.sig_object['/Name']).strip()
-                    elif 'Name' in sig.sig_object:
-                        signer_name = str(sig.sig_object['Name']).strip()
-                except Exception:
-                    pass
-                
-                if not signer_name:
+                verification_stack = []
+                for sig in w.prev.embedded_signatures:
+                    status = validate_pdf_signature(sig)
+                    
+                    signer_name = ""
                     cert = getattr(status, 'signing_cert', None)
-                    if cert and hasattr(cert, 'subject'):
+                    if cert is not None and hasattr(cert, 'subject'):
+                        # QUAN TRỌNG: pyhanko trả về chứng thư dạng asn1crypto.x509.Certificate,
+                        # KHÁC với cryptography.x509.Certificate. Object này không có method
+                        # get_attributes_for_oid() (chỉ cryptography.x509 mới có), nên gọi vào
+                        # sẽ luôn raise AttributeError, bị "except Exception: pass" nuốt mất và
+                        # khiến signer_name luôn rỗng -> hiển thị nhầm mặc định "Hệ thống CTUT".
+                        # asn1crypto đọc Common Name qua .subject.native["common_name"].
                         try:
-                            if hasattr(cert.subject, 'native') and isinstance(cert.subject.native, dict):
-                                signer_name = cert.subject.native.get('common_name', '')
-                            else:
-                                attrs = cert.subject.get_attributes_for_oid(NameOID.COMMON_NAME)
-                                if attrs:
-                                    signer_name = attrs[0].value
+                            native_subject = cert.subject.native
+                            signer_name = native_subject.get("common_name", "") or ""
                         except Exception:
                             pass
+                        # Dự phòng: nếu vì lý do nào đó cert lại là cryptography.x509.Certificate
+                        # (ví dụ đổi phiên bản pyhanko sau này), vẫn thử cách cũ.
+                        if not signer_name and hasattr(cert.subject, "get_attributes_for_oid"):
+                            try:
+                                attrs = cert.subject.get_attributes_for_oid(NameOID.COMMON_NAME)
+                                if attrs: signer_name = attrs[0].value
+                            except Exception: pass
+                    
+                    signer_str = str(signer_name).strip()
+                    signer_name = signer_str if signer_str else "Hệ thống CTUT"
+                        
+                    verification_stack.append({
+                        "valid": status.valid,
+                        "intact": status.intact,
+                        "signer": signer_name
+                    })
                 
-                signer_str = str(signer_name).strip()
-                if not signer_str or "<" in signer_str or "asn1crypto" in signer_str.lower():
-                    signer_name = "LÊ VĨ KHANG"
-                else:
-                    signer_name = signer_str.replace("CN=", "").replace("cn=", "").strip()
-
+                all_valid = all(v["valid"] for v in verification_stack)
+                all_intact = all(v["intact"] for v in verification_stack)
+                signer_names = [v["signer"] for v in verification_stack]
+                # Hiển thị tối đa 2 tên/dòng để tránh chuỗi ký quá dài bị tràn giao diện.
+                # Trong 1 dòng nối 2 tên bằng "->"; giữa các dòng ngắt bằng <br> (chuỗi
+                # này được frontend chèn thẳng vào innerHTML nên <br> sẽ xuống dòng thật).
+                signer_lines = [
+                    "->".join(signer_names[i:i + 2])
+                    for i in range(0, len(signer_names), 2)
+                ]
+                signers_chain = "<br>".join(signer_lines)
+                
+                summary_txt = f"Văn bản toàn vẹn. Chuỗi xác thực: {signers_chain}" if (all_valid and all_intact) else "Cảnh báo: Tệp tin bị chỉnh sửa."
+                    
                 return {
-                    "valid": status.valid,
-                    "intact": status.intact,
-                    "signer": signer_name,
-                    "summary": "Văn bản toàn vẹn, chữ ký số hợp lệ." if status.valid and status.intact else "Cảnh báo: Tệp tin đã bị sửa đổi."
+                    "valid": all_valid,
+                    "intact": all_intact,
+                    "signer": signers_chain,
+                    "summary": summary_txt
                 }
             except Exception as e:
-                return {"valid": False, "error": f"Lỗi thẩm định mật mã: {str(e)}"}
+                return {"valid": False, "error": f"Lỗi: {str(e)}"}

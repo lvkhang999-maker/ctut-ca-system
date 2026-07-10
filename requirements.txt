@@ -8,3 +8,6 @@ nest-asyncio==1.6.0
 pypdf==4.2.0
 passlib[bcrypt]==1.7.4
 bcrypt==4.0.1
+pyHanko[opentype]
+psycopg2-binary
+requests 

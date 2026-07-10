@@ -2,6 +2,9 @@ const API_BASE = "/api/v1";
 let CURRENT_LOGGED_ROLE = "ADMIN";
 let activeAdminSubTable = "TEACHERS";
 
+// =========================================================================
+// 1. BIẾN TOÀN CỤC: NHẬT KÝ THẨM ĐỊNH (VERIFY HISTORY)
+// =========================================================================
 let rawLogDataset = [];
 let processedLogDataset = [];
 let tableCurrentPage = 1;
@@ -9,24 +12,68 @@ let tableRowsPerPage = 10;
 let tableSortField = "timestamp";
 let tableSortAscending = false;
 
-// BIẾN TOÀN CỤC PHỤC VỤ PHÂN TRANG CHO BẢNG KẾT QUẢ KÝ ĐỒNG LOẠT BƯỚC 3
+// =========================================================================
+// 2. BIẾN TOÀN CỤC: BẢNG KẾT QUẢ KÝ ĐỒNG LOẠT (BƯỚC 3)
+// =========================================================================
 let batchFilesDataset = [];
 let batchCurrentPage = 1;
 const batchRowsPerPage = 10;
 
-// BIẾN TOÀN CỤC PHỤC VỤ TÌM KIẾM, SẮP XẾP, PHÂN TRANG CHO BẢNG KẾT QUẢ THẨM ĐỊNH ĐỒNG LOẠT
+// =========================================================================
+// 2b. BIẾN TOÀN CỤC: VỊ TRÍ KÉO-THẢ ĐÓNG DẤU (BƯỚC 3)
+// =========================================================================
+// stampRatioX/Y: vị trí góc trên-trái của khung dấu, tính theo tỷ lệ (0-1) so
+// với chiều rộng/cao trang PDF. null nghĩa là chưa chọn -> backend tự dùng vị
+// trí mặc định (góc trên-trái) như hành vi cũ.
+let stampRatioX = null;
+let stampRatioY = null;
+let currentStampPdfDoc = null;   // Đối tượng PDF (pdf.js) đã load, để đổi trang mà không cần đọc lại file
+let currentStampPageIndex = 0;   // Trang đang xem trong preview (đếm từ 0)
+// Kích thước khung dấu THẬT trên PDF (điểm PDF), phải khớp với STAMP_WIDTH/
+// STAMP_HEIGHT bên pdf_engine.py để khung xem trước đúng tỷ lệ thật.
+const STAMP_WIDTH_PT = 170;
+const STAMP_HEIGHT_PT = 55;
+// Vị trí mặc định (khớp STAMP_MARGIN_TOP/LEFT = 18 bên pdf_engine.py)
+const STAMP_DEFAULT_MARGIN_PT = 18;
+
+// =========================================================================
+// 3. BIẾN TOÀN CỤC: BẢNG KẾT QUẢ THẨM ĐỊNH ĐỒNG LOẠT
+// =========================================================================
 let batchVerifyRawDataset = [];       // Lưu trữ dữ liệu gốc trả về từ server
 let batchVerifyProcessedDataset = []; // Lưu trữ dữ liệu sau khi filter/sort
 let batchVerifyCurrentPage = 1;       // Trang hiện tại
-let batchVerifyRowsPerPage = 5;       // Số dòng hiển thị tối đa trên một trang (mặc định là 5)
+let batchVerifyRowsPerPage = 5;       // Số dòng hiển thị tối đa trên một trang
 let batchVerifySortField = "filename";// Cột sắp xếp mặc định
 let batchVerifySortAscending = true;  // Thang sắp xếp mặc định (A-Z)
 
+// =========================================================================
+// 4. BIẾN TOÀN CỤC: LỊCH SỬ KÝ (SIGNING HISTORY)
+// =========================================================================
+let rawSignLogDataset = [];
+let processedSignLogDataset = [];
+let signLogCurrentPage = 1;
+let signLogRowsPerPage = 10;
+let signLogSortField = "timestamp";
+let signLogSortAscending = false;
+
+// =========================================================================
+// UTILITIES
+// =========================================================================
 function togglePasswordVisibility(inputId, btn) {
     const input = document.getElementById(inputId);
     const icon = btn.querySelector("i");
     if (input.type === "password") { input.type = "text"; icon.className = "fa-solid fa-eye-slash"; }
     else { input.type = "password"; icon.className = "fa-solid fa-eye"; }
+}
+
+function showResult(divId, type, message) {
+    const div = document.getElementById(divId);
+    div.innerHTML = `
+        <div class="alert alert-${type} alert-dismissible fade show fw-bold shadow-sm rounded-3 m-0" role="alert">
+            <i class="fa-solid ${type === 'success' ? 'fa-circle-check' : 'fa-triangle-exclamation'} me-2"></i>
+            ${message}
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>`;
 }
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -37,10 +84,15 @@ document.addEventListener("DOMContentLoaded", () => {
             const tabTrigger = new bootstrap.Tab(this);
             tabTrigger.show();
             if (this.id === 'verify-tab') { fetchHistoryFromServer(); }
+            if (this.id === 'signhistory-tab') { fetchSigningHistoryFromServer(); }
         });
     });
 
-    document.getElementById("log_search").addEventListener("input", handleLogSearchAndFilter);
+    const logSearchInput = document.getElementById("log_search");
+    if (logSearchInput) logSearchInput.addEventListener("input", handleLogSearchAndFilter);
+
+    const signLogSearchInput = document.getElementById("sign_log_search");
+    if (signLogSearchInput) signLogSearchInput.addEventListener("input", handleSignLogSearchAndFilter);
 
     const savedUser = localStorage.getItem("ctut_session_user");
     const savedPass = localStorage.getItem("ctut_session_pass");
@@ -52,16 +104,9 @@ document.addEventListener("DOMContentLoaded", () => {
     fetchHistoryFromServer();
 });
 
-function showResult(divId, type, message) {
-    const div = document.getElementById(divId);
-    div.innerHTML = `
-                <div class="alert alert-${type} alert-dismissible fade show fw-bold shadow-sm rounded-3 m-0" role="alert">
-                    <i class="fa-solid ${type === 'success' ? 'fa-circle-check' : 'fa-triangle-exclamation'} me-2"></i>
-                    ${message}
-                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-                </div>`;
-}
-
+// =========================================================================
+// MODULE: NHẬT KÝ THẨM ĐỊNH CHUNG
+// =========================================================================
 async function fetchHistoryFromServer() {
     try {
         const res = await fetch(`${API_BASE}/pdf/verify-history`);
@@ -124,6 +169,23 @@ function toggleFilenameExpand(element) {
     element.classList.toggle("expanded-text");
 }
 
+// Chuỗi ký nhiều chữ ký nối bằng " ➔ " (vd: "A ➔ B ➔ C ➔ D") có thể rất dài và
+// tràn dòng badge. Xuống dòng cứ mỗi 2 tên, giữ mũi tên ở đầu dòng kế tiếp để
+// thể hiện chuỗi vẫn đang tiếp diễn (vd: "A ➔ B" xuống dòng "➔ C ➔ D").
+// Dùng chung cho cả bảng "Kết Quả Thẩm Định Đồng Loạt" và "Nhật Ký Thẩm Định Hệ Thống".
+function formatSignerChain(signerStr) {
+    if (!signerStr) return signerStr;
+    const names = signerStr.split(" ➔ ").map(s => s.trim()).filter(Boolean);
+    if (names.length <= 2) return names.join(" ➔ ");
+
+    const lines = [];
+    for (let i = 0; i < names.length; i += 2) {
+        const pair = names.slice(i, i + 2).join(" ➔ ");
+        lines.push(i === 0 ? pair : `➔ ${pair}`);
+    }
+    return lines.join("<br>");
+}
+
 function renderLogTable() {
     const tbody = document.getElementById("history_table_body");
     const totalRecords = processedLogDataset.length;
@@ -143,33 +205,37 @@ function renderLogTable() {
     const pagedData = processedLogDataset.slice(startIndex, endIndex);
 
     tbody.innerHTML = pagedData.map(log => {
-        let badgeClass = "bg-success";
-        if (log.status.includes("vi phạm") || log.status.includes("BỊ CHỈNH SỬA")) badgeClass = "bg-danger";
-        if (log.status.includes("thuần túy") || log.status.includes("Unsigned")) badgeClass = "bg-warning text-dark";
+        // Khớp theo nhãn status_text MỚI (main.py đã đổi nhãn, logic match cũ ở đây
+        // vẫn dùng cụm từ cũ như "thuần túy"/"Unsigned"/"BỊ CHỈNH SỬA" nên không bao
+        // giờ khớp nữa -> mọi dòng rơi về mặc định xanh lá dù trạng thái thực là lỗi.
+        let badgeClass = "bg-success"; // mặc định: Hợp lệ - Văn bản toàn vẹn
+        if (log.status.includes("chỉnh sửa") || log.status.includes("không hợp lệ")) badgeClass = "bg-danger";
+        else if (log.status.includes("Chưa được ký")) badgeClass = "bg-warning text-dark";
+        else if (log.status.includes("cấu trúc")) badgeClass = "bg-dark";
 
         return `
-                    <tr>
-                        <td class="text-secondary small" style="white-space:nowrap;">${log.timestamp}</td>
-                        <td>
-                            <div class="d-flex align-items-center justify-content-between">
-                                <span onclick="toggleFilenameExpand(this)" class="clickable-filename text-truncate fw-semibold me-2" title="Click xem tên file đầy đủ">${log.filename}</span>
-                                <button type="button" data-filename="${log.filename}" class="btn btn-sm btn-link text-primary p-0 fw-bold view-pdf-trigger" style="font-size:12.5px; text-decoration:none; white-space:nowrap;">
-                                    <i class="fa-solid fa-arrow-up-right-from-square"></i> Mở xem
-                                </button>
-                            </div>
-                        </td>
-                        <td><span class="badge ${badgeClass}">${log.status}</span></td>
-                        <td><span class="badge bg-light text-dark border">${log.signer}</span></td>
-                        <td class="text-monospace text-muted small">${log.client_ip}</td>
-                    </tr>`;
+            <tr>
+                <td class="text-secondary small" style="white-space:nowrap;">${log.timestamp}</td>
+                <td>
+                    <div class="d-flex align-items-center justify-content-between">
+                        <span onclick="toggleFilenameExpand(this)" class="clickable-filename text-truncate fw-semibold me-2" title="Click xem tên file đầy đủ">${log.filename}</span>
+                        <button type="button" data-filename="${log.filename}" class="btn btn-sm btn-link text-primary p-0 fw-bold view-pdf-trigger" style="font-size:12.5px; text-decoration:none; white-space:nowrap;">
+                            <i class="fa-solid fa-arrow-up-right-from-square"></i> Mở xem
+                        </button>
+                    </div>
+                </td>
+                <td><span class="badge ${badgeClass}">${log.status}</span></td>
+                <td><span class="badge bg-light text-dark border">${formatSignerChain(log.signer)}</span></td>
+                <td class="text-monospace text-muted small">${log.client_ip}</td>
+            </tr>`;
     }).join("");
 
     document.getElementById("log_pagination_info").innerText = `Hiển thị ${startIndex + 1} - ${endIndex} trong ${totalRecords} bản ghi`;
 
     let paginationHtml = `
-                <li class="page-item ${tableCurrentPage === 1 ? 'disabled' : ''}">
-                    <button class="page-link" onclick="changeLogPage(${tableCurrentPage - 1})"><i class="fa-solid fa-angle-left"></i></button>
-                </li>`;
+        <li class="page-item ${tableCurrentPage === 1 ? 'disabled' : ''}">
+            <button class="page-link" onclick="changeLogPage(${tableCurrentPage - 1})"><i class="fa-solid fa-angle-left"></i></button>
+        </li>`;
 
     let startPage = Math.max(1, tableCurrentPage - 2);
     let endPage = Math.min(totalPages, startPage + 4);
@@ -177,15 +243,15 @@ function renderLogTable() {
 
     for (let i = startPage; i <= endPage; i++) {
         paginationHtml += `
-                    <li class="page-item ${tableCurrentPage === i ? 'active' : ''}">
-                        <button class="page-link ${tableCurrentPage === i ? 'bg-primary border-primary' : ''}" onclick="changeLogPage(${i})">${i}</button>
-                    </li>`;
+            <li class="page-item ${tableCurrentPage === i ? 'active' : ''}">
+                <button class="page-link ${tableCurrentPage === i ? 'bg-primary border-primary' : ''}" onclick="changeLogPage(${i})">${i}</button>
+            </li>`;
     }
 
     paginationHtml += `
-                <li class="page-item ${tableCurrentPage === totalPages ? 'disabled' : ''}">
-                    <button class="page-link" onclick="changeLogPage(${tableCurrentPage + 1})"><i class="fa-solid fa-angle-right"></i></button>
-                </li>`;
+        <li class="page-item ${tableCurrentPage === totalPages ? 'disabled' : ''}">
+            <button class="page-link" onclick="changeLogPage(${tableCurrentPage + 1})"><i class="fa-solid fa-angle-right"></i></button>
+        </li>`;
 
     document.getElementById("log_pagination_controls").innerHTML = paginationHtml;
 }
@@ -195,6 +261,136 @@ function changeLogPage(pageTarget) {
     renderLogTable();
 }
 
+// =========================================================================
+// MODULE: LỊCH SỬ KÝ (SIGNING HISTORY)
+// =========================================================================
+async function fetchSigningHistoryFromServer() {
+    try {
+        const res = await fetch(`${API_BASE}/pdf/signing-history`);
+        if (!res.ok) return;
+        rawSignLogDataset = await res.json();
+        handleSignLogSearchAndFilter();
+    } catch (e) {
+        document.getElementById("sign_history_table_body").innerHTML = `<tr><td colspan="5" class="text-center text-danger py-3">Lỗi mất kênh truyền dữ liệu CSDL.</td></tr>`;
+    }
+}
+
+function handleSignLogSearchAndFilter() {
+    const searchQuery = document.getElementById("sign_log_search").value.toLowerCase().trim();
+    const filterStatus = document.getElementById("sign_log_filter_status").value;
+
+    processedSignLogDataset = rawSignLogDataset.filter(item => {
+        const matchStatus = (filterStatus === "ALL") || item.status === filterStatus;
+        const matchSearch = !searchQuery ||
+            item.filename.toLowerCase().includes(searchQuery) ||
+            (item.signer_name || "").toLowerCase().includes(searchQuery) ||
+            (item.user_id || "").toLowerCase().includes(searchQuery);
+        return matchStatus && matchSearch;
+    });
+    signLogCurrentPage = 1;
+    sortSignLogDataset();
+}
+
+function handleSignLogSort(field) {
+    if (signLogSortField === field) { signLogSortAscending = !signLogSortAscending; }
+    else { signLogSortField = field; signLogSortAscending = true; }
+    sortSignLogDataset();
+}
+
+function renderSignLogTable() {
+    const tbody = document.getElementById("sign_history_table_body");
+    if (!tbody) return;
+    const totalRecords = processedSignLogDataset.length;
+
+    if (totalRecords === 0) {
+        tbody.innerHTML = `<tr><td colspan="5" class="text-center text-muted py-4">Chưa có lịch sử ký nào.</td></tr>`;
+        document.getElementById("sign_log_pagination_info").innerText = "Hiển thị 0 - 0 trong 0 bản ghi";
+        document.getElementById("sign_log_pagination_controls").innerHTML = "";
+        return;
+    }
+
+    const totalPages = Math.ceil(totalRecords / signLogRowsPerPage);
+    if (signLogCurrentPage > totalPages) signLogCurrentPage = totalPages;
+
+    const startIndex = (signLogCurrentPage - 1) * signLogRowsPerPage;
+    const endIndex = Math.min(startIndex + signLogRowsPerPage, totalRecords);
+    const pagedData = processedSignLogDataset.slice(startIndex, endIndex);
+
+    tbody.innerHTML = pagedData.map(log => {
+        const isSuccess = log.status === "SUCCESS";
+        const badgeClass = isSuccess ? "bg-success" : "bg-danger";
+        const badgeText = isSuccess ? "Ký thành công" : "Ký thất bại";
+
+        return `
+            <tr>
+                <td class="text-secondary small" style="white-space:nowrap;">${log.timestamp}</td>
+                <td>
+        <div class="d-flex align-items-center justify-content-between">
+        <span onclick="toggleFilenameExpand(this)" class="clickable-filename text-truncate fw-semibold me-2" title="Click xem tên file đầy đủ">${log.filename}</span>
+        
+        <button type="button" data-filename="${log.filename}" class="btn btn-sm btn-link text-primary p-0 fw-bold view-pdf-trigger" style="font-size:12.5px; text-decoration:none; white-space:nowrap;">
+            <i class="fa-solid fa-arrow-up-right-from-square"></i> Mở xem
+        </button>
+    </div>
+</td>
+                <td><span class="badge bg-light text-dark border">${log.signer_name || log.user_id}</span></td>
+                <td><span class="badge ${badgeClass}">${badgeText}</span></td>
+                <td class="text-muted small">${log.detail ? log.detail : "-"}</td>
+            </tr>`;
+    }).join("");
+
+    document.getElementById("sign_log_pagination_info").innerText = `Hiển thị ${startIndex + 1} - ${endIndex} trong ${totalRecords} bản ghi`;
+
+    let paginationHtml = `
+        <li class="page-item ${signLogCurrentPage === 1 ? 'disabled' : ''}">
+            <button class="page-link" onclick="changeSignLogPage(${signLogCurrentPage - 1})"><i class="fa-solid fa-angle-left"></i></button>
+        </li>`;
+
+    let startPage = Math.max(1, signLogCurrentPage - 2);
+    let endPage = Math.min(totalPages, startPage + 4);
+    if (endPage - startPage < 4) startPage = Math.max(1, endPage - 4);
+
+    for (let i = startPage; i <= endPage; i++) {
+        paginationHtml += `
+            <li class="page-item ${signLogCurrentPage === i ? 'active' : ''}">
+                <button class="page-link ${signLogCurrentPage === i ? 'bg-primary border-primary' : ''}" onclick="changeSignLogPage(${i})">${i}</button>
+            </li>`;
+    }
+
+    paginationHtml += `
+        <li class="page-item ${signLogCurrentPage === totalPages ? 'disabled' : ''}">
+            <button class="page-link" onclick="changeSignLogPage(${signLogCurrentPage + 1})"><i class="fa-solid fa-angle-right"></i></button>
+        </li>`;
+
+    document.getElementById("sign_log_pagination_controls").innerHTML = paginationHtml;
+}
+
+function sortSignLogDataset() {
+    processedSignLogDataset.sort((a, b) => {
+        let valA = a[signLogSortField] ? a[signLogSortField].toString().toLowerCase() : "";
+        let valB = b[signLogSortField] ? b[signLogSortField].toString().toLowerCase() : "";
+        if (valA < valB) return signLogSortAscending ? -1 : 1;
+        if (valA > valB) return signLogSortAscending ? 1 : -1;
+        return 0;
+    });
+    renderSignLogTable();
+}
+
+function handleSignLogRowsPerPageChange() {
+    signLogRowsPerPage = parseInt(document.getElementById("sign_log_rows_per_page").value);
+    signLogCurrentPage = 1;
+    renderSignLogTable();
+}
+
+
+function changeSignLogPage(pageTarget) {
+    signLogCurrentPage = pageTarget;
+    renderSignLogTable();
+}
+
+// =========================================================================
+// MODULE: QUẢN TRỊ ADMIN (USERS & ROLES)
+// =========================================================================
 function switchAdminTableData(targetSubTable) {
     activeAdminSubTable = targetSubTable;
     const btnTeachers = document.getElementById("sub_tab_teachers");
@@ -245,14 +441,14 @@ async function loadAdminUsers() {
         const users = await res.json();
         if (!Array.isArray(users) || users.length === 0) { tbody.innerHTML = `<tr><td colspan="4" class="text-center text-muted py-3">Chưa khởi tạo tài khoản giảng viên nào.</td></tr>`; return; }
         tbody.innerHTML = users.map(user => `
-                    <tr>
-                        <td class="fw-bold text-secondary">${user.user_id}</td>
-                        <td class="text-dark fw-bold">${user.common_name}</td>
-                        <td class="text-monospace text-muted">${user.email}</td>
-                        <td class="text-center">
-                            <button onclick="openEditUser('${user.user_id}', '${user.common_name}', '${user.email}')" class="btn btn-sm btn-outline-primary fw-bold px-2 py-1"><i class="fa-solid fa-user-pen me-1"></i>Sửa</button>
-                        </td>
-                    </tr>`).join("");
+            <tr>
+                <td class="fw-bold text-secondary">${user.user_id}</td>
+                <td class="text-dark fw-bold">${user.common_name}</td>
+                <td class="text-monospace text-muted">${user.email}</td>
+                <td class="text-center">
+                    <button onclick="openEditUser('${user.user_id}', '${user.common_name}', '${user.email}')" class="btn btn-sm btn-outline-primary fw-bold px-2 py-1"><i class="fa-solid fa-user-pen me-1"></i>Sửa</button>
+                </td>
+            </tr>`).join("");
     } catch (e) { tbody.innerHTML = `<tr><td colspan="4" class="text-center text-danger py-3">Lỗi kết nối hạ tầng mạng.</td></tr>`; }
 }
 
@@ -276,15 +472,15 @@ async function loadAdminRolesList() {
             const btnText = isActive ? "Vô hiệu" : "Kích hoạt";
 
             return `
-                        <tr>
-                            <td class="fw-bold text-dark"><i class="fa-solid fa-user-gear me-2 text-secondary"></i>${adm.username}</td>
-                            <td><span class="badge ${badgeRole}">${labelRole}</span></td>
-                            <td class="text-center">
-                                <button onclick="executeToggleAdminActive('${adm.username}')" class="btn btn-sm ${btnClass} fw-bold px-2 py-1">
-                                    <i class="fa-solid ${btnIcon} me-1"></i>${btnText}
-                                </button>
-                            </td>
-                        </tr>`;
+                <tr>
+                    <td class="fw-bold text-dark"><i class="fa-solid fa-user-gear me-2 text-secondary"></i>${adm.username}</td>
+                    <td><span class="badge ${badgeRole}">${labelRole}</span></td>
+                    <td class="text-center">
+                        <button onclick="executeToggleAdminActive('${adm.username}')" class="btn btn-sm ${btnClass} fw-bold px-2 py-1">
+                            <i class="fa-solid ${btnIcon} me-1"></i>${btnText}
+                        </button>
+                    </td>
+                </tr>`;
         }).join("");
     } catch (e) { tbody.innerHTML = `<tr><td colspan="3" class="text-center text-danger py-3">Lỗi nghẽn đường truyền cơ sở dữ liệu.</td></tr>`; }
 }
@@ -305,12 +501,12 @@ async function loadAdminAuditHistoryList() {
             if (log.status.includes("VÔ HIỆU HÓA")) textClass = "text-danger fw-bold";
             if (log.status.includes("ỦY QUYỀN")) textClass = "text-success fw-bold";
             return `
-                        <tr>
-                            <td class="text-secondary small">${log.timestamp}</td>
-                            <td><span class="${textClass}"><i class="fa-solid fa-gears me-1"></i>${log.status}</span></td>
-                            <td><span class="badge bg-light text-dark border fw-bold">${log.signer}</span></td>
-                            <td class="text-monospace text-muted small">${log.client_ip}</td>
-                        </tr>`;
+                <tr>
+                    <td class="text-secondary small">${log.timestamp}</td>
+                    <td><span class="${textClass}"><i class="fa-solid fa-gears me-1"></i>${log.status}</span></td>
+                    <td><span class="badge bg-light text-dark border fw-bold">${log.signer}</span></td>
+                    <td class="text-monospace text-muted small">${log.client_ip}</td>
+                </tr>`;
         }).join("");
     } catch (e) { tbody.innerHTML = `<tr><td colspan="4" class="text-center text-danger py-3">Lỗi nghẽn luồng đọc DB.</td></tr>`; }
 }
@@ -398,6 +594,7 @@ async function executeAssignPrivilege() {
         } else { showResult("priv_result", "danger", `Lỗi: ${data.detail}`); }
     } catch (e) { showResult("priv_result", "danger", "Lỗi kết nối mạng!"); }
 }
+
 async function unlockAdminPanel() {
     const user = document.getElementById("admin_username").value;
     const pass = document.getElementById("admin_password").value;
@@ -419,7 +616,7 @@ async function unlockAdminPanel() {
             const createFormFields = document.getElementById("admin_create_form_fields");
             const restrictionMsg = document.getElementById("admin_create_restriction_msg");
 
-            if (user.toLowerCase().includes("super")) {
+            if (user.toLowerCase() === "superadmin") {
                 CURRENT_LOGGED_ROLE = "SUPER_ADMIN";
                 badge.innerText = "SUPER ADMIN";
                 badge.className = "badge bg-danger fs-6";
@@ -501,11 +698,62 @@ async function executeRegister() {
     } catch (e) { showResult("reg_result", "danger", "Lỗi mạng kết nối API Gateway!"); }
 }
 
+function resetAdminView() {
+    document.getElementById("admin_username").value = "";
+    document.getElementById("admin_password").value = "";
+    document.getElementById("admin_auth_result").innerHTML = "";
+    document.getElementById("admin_login_panel").classList.remove("d-none");
+    document.getElementById("admin_main_panel").classList.add("d-none");
+    localStorage.removeItem("ctut_session_user");
+    localStorage.removeItem("ctut_session_pass");
+    closeEditUser();
+    closePrivilegeCard();
+}
+
+function openEditUser(uid, currentName, currentEmail) {
+    document.getElementById("admin_create_card").classList.add("d-none");
+    document.getElementById("admin_privilege_card").classList.add("d-none");
+    document.getElementById("admin_edit_card").classList.remove("d-none");
+    document.getElementById("edit_uid").value = uid;
+    document.getElementById("edit_uid_display").value = uid;
+    document.getElementById("edit_name").value = currentName;
+    document.getElementById("edit_email").value = currentEmail;
+
+    document.getElementById("edit_password").value = "";
+    document.getElementById("edit_password_confirm").value = "";
+    document.getElementById("edit_user_result").innerHTML = "";
+}
+
+function closeEditUser() {
+    document.getElementById("admin_create_card").classList.remove("d-none");
+    document.getElementById("admin_edit_card").classList.add("d-none");
+    document.getElementById("edit_user_result").innerHTML = "";
+    if (CURRENT_LOGGED_ROLE !== "SUPER_ADMIN") {
+        document.getElementById("admin_create_form_fields").classList.add("d-none");
+        document.getElementById("admin_create_restriction_msg").classList.remove("d-none");
+    }
+}
+
+function showPrivilegeCard() {
+    document.getElementById("admin_create_card").classList.add("d-none");
+    document.getElementById("admin_edit_card").classList.add("d-none");
+    document.getElementById("admin_privilege_card").classList.remove("d-none");
+    document.getElementById("priv_result").innerHTML = "";
+}
+
+function closePrivilegeCard() {
+    document.getElementById("admin_create_card").classList.remove("d-none");
+    document.getElementById("admin_privilege_card").classList.add("d-none");
+    if (CURRENT_LOGGED_ROLE !== "SUPER_ADMIN") {
+        document.getElementById("admin_create_form_fields").classList.add("d-none");
+        document.getElementById("admin_create_restriction_msg").classList.remove("d-none");
+    }
+}
+
 // =========================================================================
-// WIZARD CONTROL PIPELINE (LUỒNG ĐIỀU HƯỚNG 3 BƯỚC ĐÃ KHẮC PHỤC HOÀN TOÀN)
+// WIZARD CONTROL PIPELINE (LUỒNG ĐIỀU HƯỚNG 3 BƯỚC ĐĂNG NHẬP / KÝ SỐ)
 // =========================================================================
 
-// BƯỚC 1: ĐĂNG NHẬP XÁC THỰC MẬT KHẨU KHÓA VÀ GỬI MÃ OTP
 async function executeRequestOTP() {
     const uid = document.getElementById("sign_uid").value;
     const pwd = document.getElementById("sign_pwd").value;
@@ -536,7 +784,61 @@ function backToStep1() {
     document.getElementById("sign_result").innerHTML = "";
 }
 
-// BƯỚC 2: PHÊ DUYỆT MÃ OTP RIÊNG BIỆT - ĐĂNG KÝ STATEFUL SESSION TRÊN SERVER
+// =========================================================================
+// KHÔI PHỤC PHIÊN OTP SAU KHI RELOAD TRANG
+// =========================================================================
+// Trước đây trạng thái "đã đăng nhập/đã xác thực OTP" chỉ tồn tại trong biến
+// JS của tab, nên F5 là mất sạch dù server (_user_active_sessions) vẫn còn
+// nhớ phiên OTP hợp lệ. Giờ dùng sessionStorage (KHÔNG lưu mật khẩu, chỉ lưu
+// user_id, và tự xóa khi đóng tab) để phát hiện và mời người dùng tiếp tục ký
+// ngay mà không cần xin OTP mới - chỉ cần nhập lại mật khẩu.
+async function checkResumeSessionOnLoad() {
+    const savedUid = sessionStorage.getItem("ctut_active_uid");
+    const savedPwd = sessionStorage.getItem("ctut_active_pwd"); // Dòng thêm mới
+    if (!savedUid) return;
+
+    document.getElementById("sign_uid").value = savedUid;
+
+    try {
+        const res = await fetch(`${API_BASE}/user/session-status/${encodeURIComponent(savedUid)}`);
+        const data = await res.json();
+        if (res.ok && data.active) {
+            if (savedPwd) {
+                // AUTO-RESUME: Tự động điền pass và nhảy thẳng vào Bước 3 (Bỏ qua banner rườm rà)
+                document.getElementById("sign_pwd").value = savedPwd;
+                document.getElementById("panel_step_1").classList.add("d-none");
+                document.getElementById("panel_step_3").classList.remove("d-none");
+                updateHeaderSignaturePreview();
+                document.getElementById("sign_result").innerHTML = "";
+            } else {
+                // Fallback: Banner cũ phòng trường hợp user xóa storage mật khẩu nhưng còn UID
+                const banner = document.getElementById("resume_session_banner");
+                document.getElementById("resume_session_uid").innerText = savedUid;
+                banner.classList.remove("d-none");
+                document.getElementById("sign_pwd").focus();
+            }
+        } else {
+            sessionStorage.removeItem("ctut_active_uid");
+            sessionStorage.removeItem("ctut_active_pwd"); // Dòng thêm mới
+        }
+    } catch (e) {
+        // Mất mạng lúc kiểm tra -> im lặng bỏ qua, người dùng vẫn đăng nhập lại bình thường.
+    }
+}
+
+function resumeSessionContinueSigning() {
+    const pwd = document.getElementById("sign_pwd").value;
+    if (!pwd) {
+        showResult("sign_result", "danger", "Vui lòng nhập lại mật khẩu khóa Private để tiếp tục!");
+        return;
+    }
+    document.getElementById("panel_step_1").classList.add("d-none");
+    document.getElementById("panel_step_3").classList.remove("d-none");
+    document.getElementById("sign_result").innerHTML = "";
+}
+
+document.addEventListener("DOMContentLoaded", checkResumeSessionOnLoad);
+
 async function executeVerifyOTP() {
     const uid = document.getElementById("sign_uid").value;
     const otp = document.getElementById("sign_otp").value;
@@ -554,7 +856,13 @@ async function executeVerifyOTP() {
         if (res.ok) {
             document.getElementById("panel_step_2").classList.add("d-none");
             document.getElementById("panel_step_3").classList.remove("d-none");
+            updateHeaderSignaturePreview();
             document.getElementById("sign_result").innerHTML = "";
+
+
+            // LƯU LẠI UID VÀ MẬT KHẨU VÀO SESSION STORAGE
+            sessionStorage.setItem("ctut_active_uid", uid);
+            sessionStorage.setItem("ctut_active_pwd", document.getElementById("sign_pwd").value); // Dòng thêm mới
         } else { showResult("sign_result", "danger", `Lỗi xác thực: ${data.detail}`); }
     } catch (e) { showResult("sign_result", "danger", "Lỗi trục truyền kết nối xác thực OTP!"); }
     finally { btn.disabled = false; btn.innerHTML = `XÁC THỰC MÃ OTP`; }
@@ -566,7 +874,257 @@ function backToStep2() {
     document.getElementById("sign_result").innerHTML = "";
 }
 
-// BƯỚC 3: THỰC THI LUỒNG KÝ SỐ ĐỒNG LOẠT QUA PHIÊN AN TOÀN (BẢO VỆ CHỐNG TIMEOUT)
+// =========================================================================
+// VỊ TRÍ KÉO-THẢ ĐÓNG DẤU (dùng pdf.js render trang 1 của file đầu tiên)
+// =========================================================================
+if (window['pdfjsLib']) {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+}
+
+async function handleSignFilesSelected(inputEl) {
+    const picker = document.getElementById("stamp_position_picker");
+    if (!inputEl.files || inputEl.files.length === 0) {
+        picker.classList.add("d-none");
+        currentStampPdfDoc = null;
+        return;
+    }
+    if (!window['pdfjsLib']) {
+        // Không load được pdf.js (vd mất mạng CDN) -> ẩn khung preview, backend
+        // vẫn ký bình thường với vị trí mặc định vì stampRatioX/Y giữ nguyên null.
+        picker.classList.add("d-none");
+        return;
+    }
+
+    try {
+        const file = inputEl.files[0];
+        const arrayBuffer = await file.arrayBuffer();
+        currentStampPdfDoc = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+        currentStampPageIndex = 0;
+        stampRatioX = null; // reset để tự đặt lại mặc định đúng theo kích thước trang mới
+        stampRatioY = null;
+        await renderStampPreviewPage(currentStampPageIndex);
+        picker.classList.remove("d-none");
+        updateStampPreviewInfoText();
+        loadStampPreviewSignatureImage();
+        initStampDragHandlers();
+    } catch (e) {
+        picker.classList.add("d-none");
+        currentStampPdfDoc = null;
+    }
+}
+
+// Cập nhật khối chữ "Ký bởi/Thời gian" trong khung preview để khớp với nội dung
+// thật sẽ được đóng dấu (dùng đúng user_id đang nhập và thời điểm hiện tại).
+function updateStampPreviewInfoText() {
+    const textArea = document.getElementById("stamp_preview_text_area");
+    if (!textArea) return;
+    const uid = document.getElementById("sign_uid").value || "...";
+    const now = new Date();
+    const pad = (n) => String(n).padStart(2, "0");
+    const ts = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+    textArea.innerHTML = `Ký bởi: ${uid}<br>Thời gian: ${ts}`;
+}
+
+// Thử tải ảnh chữ ký THẬT của tài khoản (nếu đã từng upload) để hiện đúng ảnh
+// sẽ được dùng làm nền con dấu. Nếu chưa có (404) hoặc lỗi mạng, hiện placeholder.
+async function loadStampPreviewSignatureImage() {
+    const uid = document.getElementById("sign_uid").value;
+    const img = document.getElementById("stamp_preview_sig_img");
+    const placeholder = document.getElementById("stamp_preview_sig_placeholder");
+    if (!img || !placeholder) return;
+
+    if (!uid) {
+        img.classList.add("d-none");
+        placeholder.classList.remove("d-none");
+        return;
+    }
+    try {
+        const res = await fetch(`${API_BASE}/user/signature-preview/${encodeURIComponent(uid)}`);
+        if (res.ok) {
+            const blob = await res.blob();
+            img.src = URL.createObjectURL(blob);
+            img.classList.remove("d-none");
+            placeholder.classList.add("d-none");
+        } else {
+            img.classList.add("d-none");
+            placeholder.classList.remove("d-none");
+        }
+    } catch (e) {
+        img.classList.add("d-none");
+        placeholder.classList.remove("d-none");
+    }
+}
+
+async function renderStampPreviewPage(pageIndex) {
+    const picker = document.getElementById("stamp_position_picker");
+    if (!currentStampPdfDoc) return;
+
+    const page = await currentStampPdfDoc.getPage(pageIndex + 1); // pdf.js đánh số trang từ 1
+
+    // page.view = [x0, y0, x1, y1] theo ĐIỂM PDF thật (không phụ thuộc scale),
+    // dùng để quy đổi chính xác giữa pixel xem trước và điểm PDF thật.
+    const pagePtWidth = page.view[2] - page.view[0];
+    const pagePtHeight = page.view[3] - page.view[1];
+
+    const previewMaxWidthPx = 460;
+    const scale = previewMaxWidthPx / pagePtWidth;
+    const viewport = page.getViewport({ scale });
+
+    const canvas = document.getElementById("stamp_preview_canvas");
+    canvas.width = viewport.width;
+    canvas.height = viewport.height;
+    const ctx = canvas.getContext("2d");
+    await page.render({ canvasContext: ctx, viewport }).promise;
+
+    picker.dataset.pagePtWidth = pagePtWidth;
+    picker.dataset.pagePtHeight = pagePtHeight;
+    picker.dataset.canvasPxWidth = viewport.width;
+    picker.dataset.canvasPxHeight = viewport.height;
+
+    document.getElementById("stamp_page_indicator").innerText =
+        `Trang ${pageIndex + 1} / ${currentStampPdfDoc.numPages}`;
+
+    // Nếu chưa từng chọn vị trí (file mới hoặc vừa đổi trang lần đầu), đặt mặc
+    // định đúng bằng vị trí mặc định thật bên backend (góc trên-trái, cách mép
+    // 18pt) để khung xem trước khớp với kết quả ký thực tế nếu không kéo gì cả.
+    if (stampRatioX === null || stampRatioY === null) {
+        stampRatioX = STAMP_DEFAULT_MARGIN_PT / pagePtWidth;
+        stampRatioY = STAMP_DEFAULT_MARGIN_PT / pagePtHeight;
+    }
+    positionStampDragBox();
+}
+
+function changeStampPreviewPage(delta) {
+    if (!currentStampPdfDoc) return;
+    const newIndex = currentStampPageIndex + delta;
+    if (newIndex < 0 || newIndex >= currentStampPdfDoc.numPages) return;
+    currentStampPageIndex = newIndex;
+    renderStampPreviewPage(currentStampPageIndex);
+    updateStampPreviewInfoText();
+}
+
+function positionStampDragBox() {
+    const picker = document.getElementById("stamp_position_picker");
+    const box = document.getElementById("stamp_drag_box");
+    const canvasPxWidth = parseFloat(picker.dataset.canvasPxWidth);
+    const canvasPxHeight = parseFloat(picker.dataset.canvasPxHeight);
+    const pagePtWidth = parseFloat(picker.dataset.pagePtWidth);
+    const pagePtHeight = parseFloat(picker.dataset.pagePtHeight);
+
+    const boxPxWidth = (STAMP_WIDTH_PT / pagePtWidth) * canvasPxWidth;
+    const boxPxHeight = (STAMP_HEIGHT_PT / pagePtHeight) * canvasPxHeight;
+
+    box.style.width = `${boxPxWidth}px`;
+    box.style.height = `${boxPxHeight}px`;
+    box.style.left = `${stampRatioX * canvasPxWidth}px`;
+    box.style.top = `${stampRatioY * canvasPxHeight}px`;
+}
+
+function resetStampPosition() {
+    const picker = document.getElementById("stamp_position_picker");
+    const pagePtWidth = parseFloat(picker.dataset.pagePtWidth);
+    const pagePtHeight = parseFloat(picker.dataset.pagePtHeight);
+    if (!pagePtWidth || !pagePtHeight) return;
+    stampRatioX = STAMP_DEFAULT_MARGIN_PT / pagePtWidth;
+    stampRatioY = STAMP_DEFAULT_MARGIN_PT / pagePtHeight;
+    positionStampDragBox();
+}
+
+let _stampDragHandlersInitialized = false;
+function initStampDragHandlers() {
+    if (_stampDragHandlersInitialized) return;
+    _stampDragHandlersInitialized = true;
+
+    const box = document.getElementById("stamp_drag_box");
+    const wrapper = document.getElementById("stamp_preview_wrapper");
+    let isDragging = false;
+    let dragOffsetX = 0, dragOffsetY = 0;
+
+    function getPointerPos(evt) {
+        const point = evt.touches ? evt.touches[0] : evt;
+        return { x: point.clientX, y: point.clientY };
+    }
+
+    function onDragStart(evt) {
+        isDragging = true;
+        box.style.cursor = "grabbing";
+        const rect = box.getBoundingClientRect();
+        const pos = getPointerPos(evt);
+        dragOffsetX = pos.x - rect.left;
+        dragOffsetY = pos.y - rect.top;
+        evt.preventDefault();
+    }
+
+    function onDragMove(evt) {
+        if (!isDragging) return;
+        const picker = document.getElementById("stamp_position_picker");
+        const canvasPxWidth = parseFloat(picker.dataset.canvasPxWidth);
+        const canvasPxHeight = parseFloat(picker.dataset.canvasPxHeight);
+        const wrapperRect = wrapper.getBoundingClientRect();
+        const pos = getPointerPos(evt);
+
+        let newLeft = pos.x - wrapperRect.left - dragOffsetX;
+        let newTop = pos.y - wrapperRect.top - dragOffsetY;
+
+        // Kẹp trong biên canvas để khung dấu không bị kéo ra ngoài trang.
+        const boxWidthPx = box.offsetWidth;
+        const boxHeightPx = box.offsetHeight;
+        newLeft = Math.max(0, Math.min(newLeft, canvasPxWidth - boxWidthPx));
+        newTop = Math.max(0, Math.min(newTop, canvasPxHeight - boxHeightPx));
+
+        box.style.left = `${newLeft}px`;
+        box.style.top = `${newTop}px`;
+
+        stampRatioX = newLeft / canvasPxWidth;
+        stampRatioY = newTop / canvasPxHeight;
+        evt.preventDefault();
+    }
+
+    function onDragEnd() {
+        isDragging = false;
+        box.style.cursor = "grab";
+    }
+
+    box.addEventListener("mousedown", onDragStart);
+    document.addEventListener("mousemove", onDragMove);
+    document.addEventListener("mouseup", onDragEnd);
+    box.addEventListener("touchstart", onDragStart, { passive: false });
+    document.addEventListener("touchmove", onDragMove, { passive: false });
+    document.addEventListener("touchend", onDragEnd);
+}
+
+async function executeUploadSignature() {
+    const uid = document.getElementById("sign_uid").value;
+    const current_pwd = document.getElementById("sign_pwd").value;
+    const fileInput = document.getElementById("user_self_signature_file");
+    const resDiv = document.getElementById("user_self_signature_result");
+
+    if (!fileInput.files || fileInput.files.length === 0) {
+        resDiv.innerHTML = `<span class="text-danger fw-bold">❌ Vui lòng chọn 1 tệp ảnh chữ ký!</span>`;
+        return;
+    }
+
+    const formData = new FormData();
+    formData.append("user_id", uid);
+    formData.append("current_password", current_pwd);
+    formData.append("signature_file", fileInput.files[0]);
+
+    try {
+        const res = await fetch(`${API_BASE}/user/upload-signature`, { method: "POST", body: formData });
+        const data = await res.json();
+        if (res.ok) {
+            resDiv.innerHTML = `<span class="text-success fw-bold">✔️ ${data.message}</span>`;
+            fileInput.value = "";
+            loadStampPreviewSignatureImage();
+            updateHeaderSignaturePreview();
+        } else {
+            resDiv.innerHTML = `<span class="text-danger fw-bold">❌ Lỗi: ${data.detail}</span>`;
+        }
+    } catch (e) {
+        resDiv.innerHTML = `<span class="text-danger fw-bold">❌ Lỗi nghẽn đường truyền kết nối API.</span>`;
+    }
+}
+
 async function executeBatchSign() {
     const fileInput = document.getElementById("sign_file");
     if (fileInput.files.length === 0) {
@@ -583,6 +1141,15 @@ async function executeBatchSign() {
 
     for (let i = 0; i < fileInput.files.length; i++) {
         formData.append("files", fileInput.files[i]);
+    }
+
+    // Nếu người dùng đã kéo-thả chọn vị trí đóng dấu ở khung preview, gửi kèm
+    // tỷ lệ vị trí đó. Nếu chưa (ví dụ trình duyệt không load được pdf.js), bỏ
+    // qua để backend tự dùng vị trí mặc định góc trên-trái như hành vi cũ.
+    if (stampRatioX !== null && stampRatioY !== null) {
+        formData.append("stamp_ratio_x", stampRatioX);
+        formData.append("stamp_ratio_y", stampRatioY);
+        formData.append("stamp_page_index", currentStampPageIndex);
     }
 
     try {
@@ -605,7 +1172,6 @@ async function executeBatchSign() {
     }
 }
 
-// HÀM HIỆN THỊ BẢNG KẾT QUẢ CHỮ KÝ SỐ ĐỒNG LOẠT CÓ PHÂN TRANG (10 DÒNG/TRANG)
 function renderBatchFilesTable() {
     const totalRecords = batchFilesDataset.length;
     const totalPages = Math.ceil(totalRecords / batchRowsPerPage);
@@ -616,60 +1182,60 @@ function renderBatchFilesTable() {
     const pagedData = batchFilesDataset.slice(startIndex, endIndex);
 
     let tableHtml = `
-                <div class="alert alert-success border-0 rounded-3 mb-3">🎉 Hệ thống hoàn tất tiến trình ký số đồng loạt thành công cho toàn bộ ${totalRecords} văn bản PDF.</div>
-                <div class="d-flex justify-content-between align-items-center mb-2">
-                    <button type="button" class="btn btn-sm btn-primary rounded-2 px-3 fw-bold shadow-sm" onclick="downloadSelectedBatchFiles()">
-                        <i class="fa-solid fa-cloud-arrow-down me-1"></i> Tải các file đã chọn
-                    </button>
-                    <span class="small fw-semibold text-muted">Hiển thị ${startIndex + 1} - ${endIndex} trong ${totalRecords} tệp</span>
-                </div>
-                <div class="table-responsive border rounded-3 bg-white mb-2">
-                    <table class="table table-hover align-middle m-0" style="font-size: 13.5px;">
-                        <thead class="table-light">
-                            <tr>
-                                <th style="width: 50px;" class="text-center">
-                                    <input type="checkbox" id="batch_select_all" class="form-check-input" onclick="toggleSelectAllBatch(this)">
-                                </th>
-                                <th>Tên tệp tin đã đóng dấu mã hóa X.509</th>
-                                <th class="text-center" style="width: 120px;">Hành động</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${pagedData.map(fn => {
+        <div class="alert alert-success border-0 rounded-3 mb-3">🎉 Hệ thống hoàn tất tiến trình ký số đồng loạt thành công cho toàn bộ ${totalRecords} văn bản PDF.</div>
+        <div class="d-flex justify-content-between align-items-center mb-2">
+            <button type="button" class="btn btn-sm btn-primary rounded-2 px-3 fw-bold shadow-sm" onclick="downloadSelectedBatchFiles()">
+                <i class="fa-solid fa-cloud-arrow-down me-1"></i> Tải các file đã chọn
+            </button>
+            <span class="small fw-semibold text-muted">Hiển thị ${startIndex + 1} - ${endIndex} trong ${totalRecords} tệp</span>
+        </div>
+        <div class="table-responsive border rounded-3 bg-white mb-2">
+            <table class="table table-hover align-middle m-0" style="font-size: 13.5px;">
+                <thead class="table-light">
+                    <tr>
+                        <th style="width: 50px;" class="text-center">
+                            <input type="checkbox" id="batch_select_all" class="form-check-input" onclick="toggleSelectAllBatch(this)">
+                        </th>
+                        <th>Tên tệp tin đã đóng dấu mã hóa X.509</th>
+                        <th class="text-center" style="width: 120px;">Hành động</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${pagedData.map(fn => {
         const cleanName = fn.replace("signed_batch_", "");
         return `
-                                    <tr>
-                                        <td class="text-center">
-                                            <input type="checkbox" class="form-check-input batch-file-checkbox" value="${fn}">
-                                        </td>
-                                        <td class="fw-semibold text-secondary"><i class="fa-solid fa-file-pdf text-danger me-2"></i>${cleanName}</td>
-                                        <td class="text-center">
-                                            <a href="${API_BASE}/pdf/download/${encodeURIComponent(fn)}" target="_blank" class="btn btn-sm btn-link text-success p-0 fw-bold" style="text-decoration:none;">
-                                                <i class="fa-solid fa-arrow-up-right-from-square me-1"></i>Xem file
-                                            </a>
-                                        </td>
-                                    </tr>`;
+                        <tr>
+                            <td class="text-center">
+                                <input type="checkbox" class="form-check-input batch-file-checkbox" value="${fn}">
+                            </td>
+                            <td class="fw-semibold text-secondary"><i class="fa-solid fa-file-pdf text-danger me-2"></i>${cleanName}</td>
+                            <td class="text-center">
+                                <a href="${API_BASE}/pdf/download/${encodeURIComponent(fn)}" target="_blank" class="btn btn-sm btn-link text-success p-0 fw-bold" style="text-decoration:none;">
+                                    <i class="fa-solid fa-arrow-up-right-from-square me-1"></i>Xem file
+                                </a>
+                            </td>
+                        </tr>`;
     }).join("")}
-                        </tbody>
-                    </table>
-                </div>`;
+                </tbody>
+            </table>
+        </div>`;
 
     if (totalPages > 1) {
         tableHtml += `<nav><ul class="pagination pagination-sm justify-content-center m-0 mt-3">`;
         tableHtml += `
-                    <li class="page-item ${batchCurrentPage === 1 ? 'disabled' : ''}">
-                        <button class="page-link" onclick="changeBatchPage(${batchCurrentPage - 1})"><i class="fa-solid fa-angle-left"></i></button>
-                    </li>`;
+            <li class="page-item ${batchCurrentPage === 1 ? 'disabled' : ''}">
+                <button class="page-link" onclick="changeBatchPage(${batchCurrentPage - 1})"><i class="fa-solid fa-angle-left"></i></button>
+            </li>`;
         for (let i = 1; i <= totalPages; i++) {
             tableHtml += `
-                        <li class="page-item ${batchCurrentPage === i ? 'active' : ''}">
-                            <button class="page-link" onclick="changeBatchPage(${i})">${i}</button>
-                        </li>`;
+                <li class="page-item ${batchCurrentPage === i ? 'active' : ''}">
+                    <button class="page-link" onclick="changeBatchPage(${i})">${i}</button>
+                </li>`;
         }
         tableHtml += `
-                    <li class="page-item ${batchCurrentPage === totalPages ? 'disabled' : ''}">
-                        <button class="page-link" onclick="changeBatchPage(${batchCurrentPage + 1})"><i class="fa-solid fa-angle-right"></i></button>
-                    </li></ul></nav>`;
+            <li class="page-item ${batchCurrentPage === totalPages ? 'disabled' : ''}">
+                <button class="page-link" onclick="changeBatchPage(${batchCurrentPage + 1})"><i class="fa-solid fa-angle-right"></i></button>
+            </li></ul></nav>`;
     }
 
     document.getElementById("sign_result").innerHTML = tableHtml;
@@ -729,16 +1295,46 @@ async function downloadSelectedBatchFiles() {
     }
 }
 
+async function logoutUser() {
+    const uid = document.getElementById("sign_uid").value;
+    if (!uid) return;
+
+    const formData = new FormData();
+    formData.append("user_id", uid);
+
+    try {
+        await fetch(`${API_BASE}/user/logout`, { method: "POST", body: formData });
+    } catch (e) {
+        console.error("Lỗi ngắt kết nối mạng khi đăng xuất.");
+    } finally {
+        document.getElementById("panel_step_3").classList.add("d-none");
+        document.getElementById("panel_step_1").classList.remove("d-none");
+        document.getElementById("resume_session_banner").classList.add("d-none");
+
+        // XÓA SẠCH DỮ LIỆU TẠM THỜI
+        sessionStorage.removeItem("ctut_active_uid");
+        sessionStorage.removeItem("ctut_active_pwd"); // Dòng thêm mới
+
+        document.getElementById("sign_pwd").value = "";
+        document.getElementById("sign_otp").value = "";
+        document.getElementById("sign_file").value = "";
+        document.getElementById("sign_result").innerHTML = "";
+    }
+}
+
+// =========================================================================
+// THẨM ĐỊNH ĐỒNG LOẠT (BATCH VERIFY) - BẢO LƯU TỪ FILE TRƯỚC
+// =========================================================================
 async function executeVerify() {
     const fileInput = document.getElementById("verify_file");
     if (fileInput.files.length === 0) return alert("Vui lòng chọn ít nhất một tệp PDF để thẩm định!");
 
     const btn = document.querySelector("#verify button.btn-success");
     const originalText = btn.innerHTML;
-    
-    btn.disabled = true; 
+
+    btn.disabled = true;
     btn.innerHTML = `<span class="spinner-border spinner-border-sm me-2"></span>Đang phân tích hệ thống mật mã hàng loạt...`;
-    
+
     const div = document.getElementById("verify_result");
     div.innerHTML = "";
 
@@ -750,13 +1346,11 @@ async function executeVerify() {
     try {
         const res = await fetch(`${API_BASE}/pdf/verify`, { method: "POST", body: formData });
         const data = await res.json();
-        
+
         if (res.ok && data.status === "success") {
-            // Nạp dữ liệu vào bộ nhớ tạm toàn cục
             batchVerifyRawDataset = data.results;
             batchVerifyCurrentPage = 1;
-            
-            // Dựng khung cấu trúc Card kết quả bao gồm các thanh điều hướng (Tìm kiếm, Chọn số dòng hiển thị)
+
             div.innerHTML = `
                 <div class="card border-primary rounded-3 shadow-sm animate__animated animate__fadeIn">
                     <div class="card-header bg-primary text-white fw-bold d-flex align-items-center justify-content-between flex-wrap gap-2">
@@ -791,7 +1385,6 @@ async function executeVerify() {
                                 </tr>
                             </thead>
                             <tbody id="batch_verify_table_body">
-                                <!-- Dữ liệu phân trang sẽ được render động tại đây -->
                             </tbody>
                         </table>
                     </div>
@@ -802,133 +1395,34 @@ async function executeVerify() {
                         </nav>
                     </div>
                 </div>`;
-            
-            // Lắng nghe sự kiện gõ phím trên ô tìm kiếm vừa tạo
+
             document.getElementById("batch_verify_search").addEventListener("input", handleBatchVerifySearchAndFilter);
-            
-            // Gọi hàm xử lý lọc và vẽ bảng lần đầu tiên
             handleBatchVerifySearchAndFilter();
-        } else { 
-            div.innerHTML = `<div class="alert alert-danger fw-bold"><i class="fa-solid fa-circle-xmark me-2"></i>Lỗi: ${data.detail || "Không thể xử lý dữ liệu từ API."}</div>`; 
-        }
-    } catch (e) { 
-        div.innerHTML = `<div class="alert alert-danger fw-bold"><i class="fa-solid fa-circle-xmark me-2"></i>Không thể kết nối API Gateway.</div>`; 
-    } finally { 
-        btn.disabled = false; 
-        btn.innerHTML = originalText; 
-        fetchHistoryFromServer(); // Tự động cập nhật lại nhật ký hệ thống ở phía dưới[cite: 3]
-    }
-}
-async function unlockAdminPanel() {
-    const user = document.getElementById("admin_username").value;
-    const pass = document.getElementById("admin_password").value;
-    const errDiv = document.getElementById("admin_auth_result");
-
-    try {
-        const res = await fetch(`${API_BASE}/admin/users?admin_user=${user}&admin_pass=${pass}`);
-        if (res.ok) {
-            document.getElementById("admin_login_panel").classList.add("d-none");
-            document.getElementById("admin_main_panel").classList.remove("d-none");
-            errDiv.innerHTML = "";
-            localStorage.setItem("ctut_session_user", user);
-            localStorage.setItem("ctut_session_pass", pass);
-
-            // CẬP NHẬT ĐÚNG: Định nghĩa các phần tử giao diện
-            const badge = document.getElementById("txt_admin_role_badge");
-            const superBtn = document.getElementById("btn_toggle_privilege_panel");
-            const createFormFields = document.getElementById("admin_create_form_fields");
-            const restrictionMsg = document.getElementById("admin_create_restriction_msg");
-
-            if (user.toLowerCase() === "superadmin") { // So sánh chính xác tài khoản Super
-                CURRENT_LOGGED_ROLE = "SUPER_ADMIN";
-                badge.innerText = "SUPER ADMIN";
-                badge.className = "badge bg-danger fs-6";
-                superBtn.classList.remove("d-none");
-                // MỞ KHÓA FORM: Phải remove class d-none để hiển thị form
-                createFormFields.classList.remove("d-none");
-                restrictionMsg.classList.add("d-none");
-            } else {
-                CURRENT_LOGGED_ROLE = "ADMIN";
-                badge.innerText = "ADMIN (RA OFFICER)";
-                badge.className = "badge bg-primary fs-6";
-                superBtn.classList.add("d-none");
-                // KHÓA FORM: Chỉ hiện thông báo giới hạn
-                createFormFields.classList.add("d-none");
-                restrictionMsg.classList.remove("d-none");
-            }
-            switchAdminTableData("TEACHERS");
         } else {
-            errDiv.innerHTML = `<div class="alert alert-danger fw-bold rounded-3 small m-0">Sai tài khoản hoặc mật khẩu!</div>`;
+            div.innerHTML = `<div class="alert alert-danger fw-bold"><i class="fa-solid fa-circle-xmark me-2"></i>Lỗi: ${data.detail || "Không thể xử lý dữ liệu từ API."}</div>`;
         }
-    } catch (e) { errDiv.innerHTML = `<div class="alert alert-danger fw-bold rounded-3 small m-0">Lỗi kết nối hạ tầng API.</div>`; }
-}
-function resetAdminView() {
-    document.getElementById("admin_username").value = "";
-    document.getElementById("admin_password").value = "";
-    document.getElementById("admin_auth_result").innerHTML = "";
-    document.getElementById("admin_login_panel").classList.remove("d-none");
-    document.getElementById("admin_main_panel").classList.add("d-none");
-    localStorage.removeItem("ctut_session_user");
-    localStorage.removeItem("ctut_session_pass");
-    closeEditUser();
-    closePrivilegeCard();
-}
-function openEditUser(uid, currentName, currentEmail) {
-    document.getElementById("admin_create_card").classList.add("d-none");
-    document.getElementById("admin_privilege_card").classList.add("d-none");
-    document.getElementById("admin_edit_card").classList.remove("d-none");
-    document.getElementById("edit_uid").value = uid;
-    document.getElementById("edit_uid_display").value = uid;
-    document.getElementById("edit_name").value = currentName;
-    document.getElementById("edit_email").value = currentEmail;
-
-    // Clear password inputs
-    document.getElementById("edit_password").value = "";
-    document.getElementById("edit_password_confirm").value = "";
-    document.getElementById("edit_user_result").innerHTML = "";
-}
-
-function closeEditUser() {
-    document.getElementById("admin_create_card").classList.remove("d-none");
-    document.getElementById("admin_edit_card").classList.add("d-none");
-    document.getElementById("edit_user_result").innerHTML = "";
-    if (CURRENT_LOGGED_ROLE !== "SUPER_ADMIN") {
-        document.getElementById("admin_create_form_fields").classList.add("d-none");
-        document.getElementById("admin_create_restriction_msg").classList.remove("d-none");
+    } catch (e) {
+        div.innerHTML = `<div class="alert alert-danger fw-bold"><i class="fa-solid fa-circle-xmark me-2"></i>Không thể kết nối API Gateway.</div>`;
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+        fetchHistoryFromServer();
     }
 }
 
-function showPrivilegeCard() {
-    document.getElementById("admin_create_card").classList.add("d-none");
-    document.getElementById("admin_edit_card").classList.add("d-none");
-    document.getElementById("admin_privilege_card").classList.remove("d-none");
-    document.getElementById("priv_result").innerHTML = "";
-}
-
-function closePrivilegeCard() {
-    document.getElementById("admin_create_card").classList.remove("d-none");
-    document.getElementById("admin_privilege_card").classList.add("d-none");
-    if (CURRENT_LOGGED_ROLE !== "SUPER_ADMIN") {
-        document.getElementById("admin_create_form_fields").classList.add("d-none");
-        document.getElementById("admin_create_restriction_msg").classList.remove("d-none");
-    }
-}
-// 1. Xử lý bộ lọc tìm kiếm văn bản số công khai trong bảng kết quả hàng loạt
 function handleBatchVerifySearchAndFilter() {
     const searchQuery = document.getElementById("batch_verify_search").value.toLowerCase().trim();
-
     batchVerifyProcessedDataset = batchVerifyRawDataset.filter(item => {
-        return !searchQuery || 
-               item.filename.toLowerCase().includes(searchQuery) || 
-               item.signer.toLowerCase().includes(searchQuery) ||
-               item.status_text.toLowerCase().includes(searchQuery);
+        return !searchQuery ||
+            item.filename.toLowerCase().includes(searchQuery) ||
+            item.signer.toLowerCase().includes(searchQuery) ||
+            item.status_text.toLowerCase().includes(searchQuery);
     });
-    
-    batchVerifyCurrentPage = 1; // Khởi động lại về trang 1 khi gõ tìm kiếm
+
+    batchVerifyCurrentPage = 1;
     sortBatchVerifyDataset();
 }
 
-// 2. Xử lý sự kiện click tiêu đề cột để sắp xếp dữ liệu
 function handleBatchVerifySort(field) {
     if (batchVerifySortField === field) {
         batchVerifySortAscending = !batchVerifySortAscending;
@@ -939,7 +1433,6 @@ function handleBatchVerifySort(field) {
     sortBatchVerifyDataset();
 }
 
-// 3. Thực thi sắp xếp mảng kết quả
 function sortBatchVerifyDataset() {
     batchVerifyProcessedDataset.sort((a, b) => {
         let valA = a[batchVerifySortField] ? a[batchVerifySortField].toString().toLowerCase() : "";
@@ -951,14 +1444,12 @@ function sortBatchVerifyDataset() {
     renderBatchVerifyTable();
 }
 
-// 4. Xử lý thay đổi cấu hình giới hạn số dòng hiển thị tối đa trên một trang
 function handleBatchVerifyRowsChange() {
     batchVerifyRowsPerPage = parseInt(document.getElementById("batch_verify_rows_per_page").value);
     batchVerifyCurrentPage = 1;
     renderBatchVerifyTable();
 }
 
-// 5. Hàm cốt lõi vẽ giao diện (Render) dữ liệu và thanh phân trang số
 function renderBatchVerifyTable() {
     const tbody = document.getElementById("batch_verify_table_body");
     const totalRecords = batchVerifyProcessedDataset.length;
@@ -977,12 +1468,11 @@ function renderBatchVerifyTable() {
     const endIndex = Math.min(startIndex + batchVerifyRowsPerPage, totalRecords);
     const pagedData = batchVerifyProcessedDataset.slice(startIndex, endIndex);
 
-    // Dựng luồng dòng dữ liệu
     tbody.innerHTML = pagedData.map((item, index) => {
-        let badgeClass = "bg-success";
-        if (item.code === "ALTERED") badgeClass = "bg-danger";
+        let badgeClass = "bg-success"; // VALID
+        if (item.code === "ALTERED" || item.code === "INVALID") badgeClass = "bg-danger";
         else if (item.code === "UNSIGNED") badgeClass = "bg-warning text-dark";
-        else if (item.code === "STRUCT_ERR" || item.code === "INVALID") badgeClass = "bg-dark";
+        else if (item.code === "STRUCT_ERR") badgeClass = "bg-dark";
 
         return `
             <tr>
@@ -993,14 +1483,12 @@ function renderBatchVerifyTable() {
                     </div>
                 </td>
                 <td><span class="badge ${badgeClass}">${item.status_text}</span></td>
-                <td><span class="badge bg-light text-dark border"><i class="fa-solid fa-user me-1 text-muted"></i>${item.signer}</span></td>
+                <td><span class="badge bg-light text-dark border"><i class="fa-solid fa-user me-1 text-muted"></i>${formatSignerChain(item.signer)}</span></td>
             </tr>`;
     }).join("");
 
-    // Hiển thị nhãn thông tin phân trang[cite: 3]
     document.getElementById("batch_verify_pagination_info").innerText = `Hiển thị ${startIndex + 1} - ${endIndex} trong ${totalRecords} bản ghi`;
 
-    // Khởi tạo thuật toán vẽ các nút bấm chuyển trang (Pagination Controls)[cite: 3]
     let paginationHtml = `
         <li class="page-item ${batchVerifyCurrentPage === 1 ? 'disabled' : ''}">
             <button class="page-link" onclick="changeBatchVerifyPage(${batchVerifyCurrentPage - 1})"><i class="fa-solid fa-angle-left"></i></button>
@@ -1025,34 +1513,34 @@ function renderBatchVerifyTable() {
     document.getElementById("batch_verify_pagination_controls").innerHTML = paginationHtml;
 }
 
-// 6. Hàm kích hoạt đổi trang khi click nút điều hướng phân trang
 function changeBatchVerifyPage(pageTarget) {
     batchVerifyCurrentPage = pageTarget;
     renderBatchVerifyTable();
 }
-// Thêm hàm này vào thẻ <script> của bạn
-// Hàm dọn dẹp phiên và đưa giao diện về trạng thái ban đầu
-async function logoutUser() {
-    const uid = document.getElementById("sign_uid").value;
-    if (!uid) return;
 
-    const formData = new FormData();
-    formData.append("user_id", uid);
+// Hàm cập nhật ảnh chữ ký trên Header của Bước 3
+async function updateHeaderSignaturePreview() {
+    const uid = document.getElementById("sign_uid").value;
+    const imgEl = document.getElementById("header_signature_preview");
+    if (!imgEl || !uid) return;
 
     try {
-        // Gửi cờ hiệu cho Backend thu hồi session của user này
-        await fetch(`${API_BASE}/user/logout`, { method: "POST", body: formData });
+        const res = await fetch(`${API_BASE}/user/signature-preview/${encodeURIComponent(uid)}`);
+        if (res.ok) {
+            const blob = await res.blob();
+            // Xóa object URL cũ khỏi bộ nhớ để tránh rò rỉ RAM (Memory Leak)
+            if (imgEl.dataset.blobUrl) {
+                URL.revokeObjectURL(imgEl.dataset.blobUrl);
+            }
+            const url = URL.createObjectURL(blob);
+            imgEl.src = url;
+            imgEl.dataset.blobUrl = url;
+        } else {
+            // Nếu lỗi 404 (chưa tải lên chữ ký), fallback về logo CTUT
+            imgEl.src = "/static/images/logo_ctut.png";
+        }
     } catch (e) {
-        console.error("Lỗi ngắt kết nối mạng khi đăng xuất.");
-    } finally {
-        // Khóa Bước 3, Mở lại Bước 1
-        document.getElementById("panel_step_3").classList.add("d-none");
-        document.getElementById("panel_step_1").classList.remove("d-none");
-        
-        // Reset toàn bộ input dữ liệu nhạy cảm
-        document.getElementById("sign_pwd").value = "";
-        document.getElementById("sign_otp").value = "";
-        document.getElementById("sign_file").value = "";
-        document.getElementById("sign_result").innerHTML = "";
+        // Fallback khi mất mạng
+        imgEl.src = "/static/images/logo_ctut.png";
     }
 }
