@@ -138,7 +138,7 @@ class PDFEngine:
                 vn_tz = ZoneInfo("Asia/Ho_Chi_Minh")
                 now_vn = datetime.datetime.now(vn_tz)
 
-                stamp_lines = f"Ký bởi: {signer_real_name}"
+                stamp_lines = [f"Ký bởi: {signer_real_name}"]
                 if signer_title:
                     stamp_lines.append(f"Chức vụ: {signer_title}")
                 stamp_lines.append(f"Ngày: {now_vn.strftime('%d-%m-%Y')}")
