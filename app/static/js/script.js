@@ -937,11 +937,11 @@ function updateStampPreviewInfoText() {
     const now = new Date();
     const pad = (n) => String(n).padStart(2, "0");
     
-    // Tạo chuỗi ngày giờ không có giây
     const dateStr = `${pad(now.getDate())}-${pad(now.getMonth() + 1)}-${now.getFullYear()}`;
-    const timeStr = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+    const timeStr = `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
     
-    textArea.innerHTML = `Ký bởi: ${uid}<br>Lúc: ${dateStr} ${timeStr}`;
+    // Đúng định dạng 3 dòng
+    textArea.innerHTML = `Ký bởi: ${uid}<br>Ngày: ${dateStr}<br>Giờ: ${timeStr}`;
 }
 
 async function loadStampPreviewSignatureImage() {
@@ -1630,3 +1630,34 @@ async function updateHeaderSignaturePreview() {
         imgEl.src = "/static/images/logo_ctut.png";
     }
 }
+document.addEventListener("DOMContentLoaded", function() {
+    const sigArea = document.getElementById("stamp_preview_sig_area");
+    const textArea = document.getElementById("stamp_preview_text_area");
+    
+    if (sigArea && textArea) {
+        // Ép CSS cột trái (Ảnh)
+        sigArea.style.inset = "auto";
+        sigArea.style.position = "absolute";
+        sigArea.style.left = "0";
+        sigArea.style.top = "0";
+        sigArea.style.width = "55%";
+        sigArea.style.height = "100%";
+        sigArea.style.display = "flex";
+        sigArea.style.alignItems = "center";
+        sigArea.style.justifyContent = "center";
+        
+        // Ép CSS cột phải (Chữ)
+        textArea.style.inset = "auto";
+        textArea.style.position = "absolute";
+        textArea.style.left = "55%";
+        textArea.style.top = "0";
+        textArea.style.width = "45%";
+        textArea.style.height = "100%";
+        textArea.style.display = "flex";
+        textArea.style.flexDirection = "column";
+        textArea.style.alignItems = "flex-start"; // Chữ thẳng lề trái
+        textArea.style.justifyContent = "center";
+        textArea.style.textAlign = "left"; // Căn trái
+        textArea.style.paddingLeft = "5px"; // Hở 1 chút so với ảnh
+    }
+});

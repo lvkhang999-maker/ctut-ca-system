@@ -134,19 +134,18 @@ class PDFEngine:
 
                 stamping_box = (box_x1, max(10, box_y1), box_x2, max(10 + effective_height, box_y2))
 
+                # 1. CHUẨN BỊ TEXT: Tách 3 dòng như thiết kế
                 vn_tz = ZoneInfo("Asia/Ho_Chi_Minh")
                 now_vn = datetime.datetime.now(vn_tz)
 
-                name_line = f"Ký bởi: {signer_real_name}"
-                time_line = f"Lúc: {now_vn.strftime('%d-%m-%Y %H:%M:%S')}"
-                pad_spaces = max(0, len(name_line) - len(time_line) + 6)
-                stamp_lines = []
-                stamp_lines.append(name_line)
+                stamp_lines = f"Ký bởi: {signer_real_name}"
                 if signer_title:
-                    stamp_lines.insert(1, f"Chức vụ: {signer_title}")
-                stamp_lines.append(time_line + (" " * pad_spaces))
+                    stamp_lines.append(f"Chức vụ: {signer_title}")
+                stamp_lines.append(f"Ngày: {now_vn.strftime('%d-%m-%Y')}")
+                stamp_lines.append(f"Giờ: {now_vn.strftime('%H:%M:%S')}")
                 stamp_text = "\n".join(stamp_lines)
 
+                # 2. LOAD ẢNH
                 user_signature_path = os.path.join(STORAGE_USERS, f"{user_id}_signature.png")
                 if os.path.exists(user_signature_path):
                     background_image = PdfImage(user_signature_path)
@@ -155,25 +154,29 @@ class PDFEngine:
                 else:
                     background_image = None
                 text_box_style = (
-                    TextBoxStyle(font=GlyphAccumulatorFactory(FONT_PATH), font_size=6)
-                    if os.path.exists(FONT_PATH) else TextBoxStyle(font_size=6)
+                    TextBoxStyle(font=GlyphAccumulatorFactory(FONT_PATH))
+                    if os.path.exists(FONT_PATH) else TextBoxStyle()
                 )
-
+                
+                # 3. CHIA TỶ LỆ CỘT ĐỘNG
+                left_col_right_margin = effective_width * 0.45 
+                right_col_left_margin = effective_width * 0.55
                 stamp_style = _build_stamp_style(
                     stamp_text=stamp_text,
                     background=background_image,
+
                     background_layout=SimpleBoxLayoutRule(
                         x_align=AxisAlignment.ALIGN_MIN,
                         y_align=AxisAlignment.ALIGN_MID,
-                        margins=Margins(left=2, right=110, top=2, bottom=2),
+                        margins=Margins(left=5, right=left_col_right_margin, top=5, bottom=5),
                     ),
-
                     background_opacity=0.95,
                     text_box_style=text_box_style,
+
                     inner_content_layout=SimpleBoxLayoutRule(
                         x_align=AxisAlignment.ALIGN_MIN,
                         y_align=AxisAlignment.ALIGN_MID,
-                        margins=Margins(left=65, right=2, top=2, bottom=2),
+                        margins=Margins(left=right_col_left_margin, right=5, top=5, bottom=5),
                     ),
                     border_width=STAMP_BORDER_WIDTH,
                     border_color=STAMP_BORDER_COLOR,
