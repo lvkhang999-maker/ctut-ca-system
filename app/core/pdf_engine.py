@@ -1,5 +1,6 @@
 import os
 import datetime
+from zoneinfo import ZoneInfo
 import uuid
 import inspect
 from cryptography import x509
@@ -61,14 +62,7 @@ class PDFEngine:
     @staticmethod
     def sign_pdf(user_id: str, user_password: str, input_pdf_path: str, output_pdf_path: str,
                  stamp_ratio_x: float = None, stamp_ratio_y: float = None, stamp_page_index: int = 0):
-        """
-        stamp_ratio_x, stamp_ratio_y: vị trí GÓC TRÊN-TRÁI của khung ký, tính theo TỶ LỆ
-        (0.0 - 1.0) so với chiều rộng/cao TRANG ĐƯỢC CHỌN, do người dùng kéo-thả chọn
-        ở giao diện. Nếu không truyền (None), dùng lại vị trí mặc định neo theo
-        STAMP_MARGIN_TOP/LEFT (góc trên-trái) như hành vi cũ.
-        stamp_page_index: số thứ tự trang (đếm từ 0) mà người dùng chọn để đóng dấu.
-        Mặc định 0 (trang đầu tiên) để tương thích ngược với các lời gọi cũ.
-        """
+        
         key_path = os.path.join(STORAGE_USERS, f"{user_id}_private.pem")
         cert_path = os.path.join(STORAGE_USERS, f"{user_id}_cert.pem")
         
@@ -83,15 +77,7 @@ class PDFEngine:
                 reader = PdfFileReader(inf)
                 sig_count = len(reader.embedded_signatures)
         except Exception:
-            # QUAN TRỌNG: nếu không xác định được có chữ ký hay không, TUYỆT ĐỐI
-            # không được coi như "chưa có chữ ký" (sig_count = 0), vì bước sanitize
-            # bên dưới sẽ ghi lại toàn bộ PDF bằng pypdf và phá vỡ hash của bất kỳ
-            # chữ ký nào đã tồn tại trước đó -> gây lỗi/hỏng file khi ký lần 2 trở đi.
-            # An toàn hơn là bỏ qua sanitize khi không chắc chắn.
             detection_failed = True
-
-        # 2. Chỉ sanitize khi CHẮC CHẮN file chưa từng có chữ ký nào.
-        #    Nếu việc phát hiện thất bại, coi như "có thể đã có chữ ký" để tránh phá hỏng.
         if sig_count == 0 and not detection_failed:
             target_input_path = input_pdf_path + ".sanitized"
             PDFEngine.sanitize_pdf(input_pdf_path, target_input_path)
@@ -110,8 +96,6 @@ class PDFEngine:
                 cert_obj = x509.load_pem_x509_certificate(f.read())
                 name_attrs = cert_obj.subject.get_attributes_for_oid(NameOID.COMMON_NAME)
                 signer_real_name = name_attrs[0].value if name_attrs else user_id
-
-                # Chức vụ: ưu tiên NameOID.TITLE, fallback sang Organizational Unit nếu không có
                 title_attrs = cert_obj.subject.get_attributes_for_oid(NameOID.TITLE)
                 if not title_attrs:
                     title_attrs = cert_obj.subject.get_attributes_for_oid(NameOID.ORGANIZATIONAL_UNIT_NAME)
@@ -119,8 +103,6 @@ class PDFEngine:
         except Exception:
             signer_real_name = user_id
             signer_title = ""
-        
-        # 4. Thuật toán Cập nhật dồn tích (Incremental Update)
         try:
             with open(target_input_path, 'rb') as inf:
                 w = IncrementalPdfFileWriter(inf)
@@ -128,33 +110,19 @@ class PDFEngine:
                 # Tạo Định danh Field ID độc nhất tránh xung đột các lớp chữ ký
                 unique_sig_id = f"Signature_CTUT_{user_id}_{uuid.uuid4().hex[:6]}"
 
-                # Lấy chiều rộng/cao THẬT của TRANG ĐƯỢC CHỌN (không hard-code 842x595
-                # A4, và không còn cố định trang đầu tiên). Đây cũng là chỗ từng thiếu
-                # page_width (BUG: chỉ tính page_height) khiến ký theo vị trí kéo-thả
-                # bị lỗi "name 'page_width' is not defined".
                 pages_kids = w.root['/Pages']['/Kids']
-                # Kẹp chỉ số trang trong biên hợp lệ [0, số trang - 1] để tránh lỗi
-                # IndexError nếu frontend lỡ gửi số trang không hợp lệ.
                 safe_page_index = max(0, min(stamp_page_index or 0, len(pages_kids) - 1))
                 target_page = pages_kids[safe_page_index].get_object()
                 media_box = target_page['/MediaBox']
                 page_width = float(media_box[2]) - float(media_box[0])
                 page_height = float(media_box[3]) - float(media_box[1])
-
-                # Tính toán tọa độ khung ký:
-                # - Nếu người dùng đã kéo-thả chọn vị trí (stamp_ratio_x/y khác None):
-                #   dùng đúng vị trí đó, quy đổi từ tỷ lệ (0-1) sang điểm PDF thực tế.
-                #   Trục Y của PDF tính từ DƯỚI lên, còn ratio_y người dùng chọn trên
-                #   giao diện tính từ TRÊN xuống (giống ảnh xem trước) nên phải đảo lại.
-                # - Nếu không có (lời gọi cũ / API cũ chưa gửi vị trí): giữ hành vi mặc
-                #   định như trước - neo góc trên-trái, tự hạ dần cho mỗi chữ ký kế tiếp.
                 offset = sig_count * STAMP_GAP_BETWEEN_SIGS
                 if stamp_ratio_x is not None and stamp_ratio_y is not None:
                     box_x1 = stamp_ratio_x * page_width
                     box_y2 = page_height - (stamp_ratio_y * page_height) - offset
                     box_y1 = box_y2 - STAMP_HEIGHT
                     box_x2 = box_x1 + STAMP_WIDTH
-                    # Kẹp trong biên trang để khung ký không bị trôi ra ngoài khi kéo sát mép.
+
                     box_x1 = max(0, min(box_x1, page_width - STAMP_WIDTH))
                     box_x2 = box_x1 + STAMP_WIDTH
                 else:
@@ -165,17 +133,15 @@ class PDFEngine:
 
                 stamping_box = (box_x1, max(10, box_y1), box_x2, max(10 + STAMP_HEIGHT, box_y2))
 
-                # Nội dung chữ hiển thị cạnh logo: Tên người ký + Chức vụ + Thời gian ký.
-                # (%(signer)s và %(ts)s được pyhanko tự động thay thế khi ký)
+                vn_tz = ZoneInfo("Asia/Ho_Chi_Minh")
+                current_time_str = datetime.datetime.now(vn_tz).strftime("%d-%m-%Y %H:%M:%S")
+
                 stamp_lines = [f"Ký bởi: {signer_real_name}"]
                 if signer_title:
                     stamp_lines.append(f"Chức vụ: {signer_title}")
-                stamp_lines.append("Thời gian: %(ts)s")
+                stamp_lines.append(f"Thời gian: {current_time_str}")
                 stamp_text = "\n".join(stamp_lines)
 
-                # Ưu tiên dùng ảnh chữ ký CÁ NHÂN của người dùng (đã tách nền, tự tải lên)
-                # thay cho logo chung của trường. Nếu người dùng chưa từng tải ảnh chữ ký
-                # riêng, fallback về logo mặc định như hành vi cũ.
                 user_signature_path = os.path.join(STORAGE_USERS, f"{user_id}_signature.png")
                 if os.path.exists(user_signature_path):
                     background_image = PdfImage(user_signature_path)
