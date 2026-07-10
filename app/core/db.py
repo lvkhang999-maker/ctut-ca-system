@@ -3,7 +3,7 @@
 import os
 from contextlib import contextmanager
 from sqlalchemy import (
-    create_engine, Column, Integer, String, DateTime, func
+    create_engine, Column, Integer, String, DateTime, func, LargeBinary
 )
 from sqlalchemy.orm import declarative_base, sessionmaker
 
@@ -88,15 +88,6 @@ def init_db():
 
 @contextmanager
 def get_session():
-    """Context manager lấy 1 session dùng cho 1 đơn vị công việc (unit of work).
-
-    Dùng như sau:
-        with get_session() as db:
-            db.query(...)
-    Tự động commit khi thoát khối `with` thành công, rollback nếu có exception,
-    và luôn đóng session ở cuối (tránh rò rỉ connection, đặc biệt quan trọng với
-    Postgres vì số connection đồng thời bị giới hạn ở gói free).
-    """
     session = SessionLocal()
     try:
         yield session
@@ -106,3 +97,10 @@ def get_session():
         raise
     finally:
         session.close()
+
+class FileStorage(Base):
+    __tablename__ = "file_storage"
+    # Lưu đường dẫn tương đối, ví dụ: storage/users/admin_cert.pem
+    file_path = Column(String, primary_key=True) 
+    # Lưu nội dung file dưới dạng nhị phân (BYTEA trong PostgreSQL)
+    file_data = Column(LargeBinary, nullable=False)

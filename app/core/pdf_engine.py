@@ -36,10 +36,6 @@ STAMP_GAP_BETWEEN_SIGS = 62   # khoảng hạ xuống cho mỗi chữ ký kế t
 STAMP_BORDER_COLOR = (0, 0, 0)  # màu viền khung ký: ĐEN (trước đây xanh lá pastel)
 STAMP_BORDER_WIDTH = 1.2
 
-# Một số bản pyhanko cũ hơn KHÔNG có tham số border_color trong TextStampStyle
-# (chỉ được thêm ở các bản mới hơn). Để không bị crash "unexpected keyword argument"
-# trên các server đang dùng bản pyhanko cũ, ta kiểm tra tham số được hỗ trợ trước
-# khi truyền vào, thay vì hard-code luôn border_color.
 _TEXTSTAMPSTYLE_PARAMS = set(inspect.signature(TextStampStyle.__init__).parameters)
 
 def _build_stamp_style(**kwargs):
@@ -149,11 +145,6 @@ class PDFEngine:
                     background_image = PdfImage(LOGO_PATH)
                 else:
                     background_image = None
-
-                # Dùng font TTF hỗ trợ Unicode để hiển thị đúng tiếng Việt có dấu.
-                # Nếu thiếu file font thì dùng lại font mặc định (sẽ bị lỗi dấu, nhưng
-                # không làm crash chương trình).
-                # Font size giảm (8 -> 6) theo yêu cầu thu nhỏ thông tin "Ký bởi/Thời gian".
                 text_box_style = (
                     TextBoxStyle(font=GlyphAccumulatorFactory(FONT_PATH), font_size=6)
                     if os.path.exists(FONT_PATH) else TextBoxStyle(font_size=6)
@@ -168,10 +159,6 @@ class PDFEngine:
                     ),
                     background_opacity=0.22,
                     text_box_style=text_box_style,
-                    # Đưa khối chữ "Ký bởi/Thời gian" vào GÓC PHẢI-DƯỚI bên trong khung
-                    # (ALIGN_MAX theo trục X = phải, ALIGN_MIN theo trục Y = dưới, vì
-                    # trục Y của PDF tính từ dưới lên). Chỉ ảnh hưởng vị trí khối chữ,
-                    # tách biệt hoàn toàn với vị trí ảnh chữ ký nền (background_layout).
                     inner_content_layout=SimpleBoxLayoutRule(
                         x_align=AxisAlignment.ALIGN_MAX,
                         y_align=AxisAlignment.ALIGN_MIN,

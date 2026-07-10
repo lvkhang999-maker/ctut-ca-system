@@ -10,11 +10,10 @@ import zipfile
 import urllib.parse
 from zoneinfo import ZoneInfo
 
-# QUAN TRỌNG: server hosting (Render...) chạy theo giờ UTC, trong khi
-# datetime.datetime.now() (không có timezone) lấy giờ hệ thống server, không
-# phải giờ Việt Nam -> mọi timestamp ghi log (Lịch Sử Ký, Nhật Ký Thẩm Định...)
-# bị lệch đúng 7 tiếng so với giờ thật (UTC+7). Dùng hàm này thay cho
-# datetime.datetime.now() ở MỌI nơi ghi timestamp xuống log.
+from app.core.db import get_session
+# Import thêm model FileStorage
+from app.core.db import Base, FileStorage
+
 VN_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
 
 def get_vn_now_str() -> str:
@@ -61,12 +60,7 @@ DB_PATH = os.path.join(DB_DIR, "audit_logs.db")
 USER_STORAGE = os.path.join(PROJECT_ROOT, "storage", "users")
 CA_DIR = os.path.join(PROJECT_ROOT, "storage", "ca")
 
-# =========================================================================
-# ADVANCED SESSION MEMORY INTEGRATION
-# Bộ nhớ RAM đệm toàn cục lưu vết trạng thái vượt qua 2FA của Giảng viên.
-# Tránh lỗi dính trùng lặp OTP hoặc hết hạn Token khi chuyển tiếp sang Bước 3.
-# =========================================================================
-_user_active_sessions = {}  # Cấu trúc lưu vết: { "user_id": True/False }
+_user_active_sessions = {} 
 
 _sandbox_otps = {}
 _orig_generate_otp = AuthEngine.generate_otp
@@ -76,10 +70,7 @@ def patched_generate_otp(user_id):
     try:
         return _orig_generate_otp(user_id)
     except Exception as e:
-        # QUAN TRỌNG: in lỗi THẬT ra log server (Render > Logs) trước khi rơi vào
-        # sandbox mode. Trước đây lỗi bị nuốt hoàn toàn, không cách nào biết vì sao
-        # gửi email thất bại (sai API key, sender chưa xác minh, hết hạn mức...).
-        print(f"[LỖI GỬI OTP THẬT - user_id={user_id}] {repr(e)}", flush=True)
+        print(f"[LỖI GỬI OTP - user_id={user_id}] {repr(e)}", flush=True)
         otp = "".join([str(random.randint(0, 9)) for _ in range(6)])
         _sandbox_otps[user_id] = otp
         raise ValueError(f"SANDBOX_MODE:{otp}")
@@ -175,7 +166,18 @@ def init_audit_db():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # 1. Khởi tạo các bảng trong PostgreSQL (bao gồm bảng FileStorage mới)
+    from app.core.db import init_db
+    init_db()
+    
+    # 2. Rút toàn bộ file từ DB bung ra ổ cứng ảo của Render
+    sync_db_to_storage()
+    
+    # 3. Khởi tạo CA và Super Admin như cũ
     init_audit_db()
+    
+    # 4. Đẩy ngược CA mới sinh (nếu là lần chạy đầu tiên) lên DB
+    sync_storage_to_db()
     yield
 
 app = FastAPI(
@@ -193,23 +195,12 @@ app.mount(
 )
 
 def build_content_disposition(disposition: str, filename: str) -> str:
-    """Tạo giá trị header Content-Disposition AN TOÀN với tên file có dấu tiếng
-    Việt. QUAN TRỌNG: header HTTP thô chỉ mã hóa được Latin-1 (ISO-8859-1), nên
-    trước đây code gán thẳng f"inline; filename={name}" sẽ khiến server ném
-    UnicodeEncodeError (lỗi 500) ngay khi trả response cho bất kỳ tên file nào
-    chứa ký tự ngoài Latin-1 (vd 'ê', 'ĩ', 'ư'...) - đúng là nguyên nhân lỗi khi
-    bấm "Xem ngay" với văn bản có tên tiếng Việt có dấu.
-    Theo RFC 6266, dùng cú pháp filename*=UTF-8''<percent-encoded> để hỗ trợ ký
-    tự Unicode, kèm fallback filename="..." thuần ASCII cho trình duyệt cũ.
-    """
     ascii_fallback = filename.encode("ascii", errors="ignore").decode("ascii").strip() or "document.pdf"
     encoded = urllib.parse.quote(filename)
     return f'{disposition}; filename="{ascii_fallback}"; filename*=UTF-8\'\'{encoded}'
 
 
 def _get_signer_common_name(user_id: str) -> str:
-    """Đọc Common Name (Họ và Tên) từ chứng thư X.509 của tài khoản, dùng để
-    hiển thị 'Người ký' trong Lịch Sử Ký thay vì chỉ hiện user_id thô."""
     try:
         cert_path = os.path.join(USER_STORAGE, f"{user_id}_cert.pem")
         with open(cert_path, "rb") as f:
@@ -221,8 +212,6 @@ def _get_signer_common_name(user_id: str) -> str:
 
 
 def _log_signing_event(filename: str, user_id: str, signer_name: str, status: str, detail: str, client_ip: str):
-    """Ghi 1 dòng lịch sử ký (thành công hoặc thất bại) vào bảng signing_logs.
-    Lỗi ghi log không được làm hỏng luồng ký chính, nên tự nuốt exception."""
     try:
         current_time = get_vn_now_str()
         with sqlite3.connect(DB_PATH) as conn:
@@ -255,7 +244,7 @@ def verify_admin_privilege(username, password, required_role=None):
         return user["role"]
 
 # =========================================================================
-# TRỤC ĐIỀU PHỐI API GATEWAY
+# API GATEWAY
 # =========================================================================
 
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)
@@ -361,6 +350,7 @@ async def register_user(
     verify_admin_privilege(admin_user, admin_pass, required_role="SUPER_ADMIN")
     try:
         msg = PKIEngine.issue_user_certificate(user_id, password, common_name, email)
+        sync_storage_to_db()
         return {"status": "success", "message": msg}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -478,6 +468,7 @@ async def admin_update_user(
         )
         with open(cert_path, "wb") as f:
             f.write(new_cert.public_bytes(serialization.Encoding.PEM))
+        sync_storage_to_db()
         return {"status": "success", "message": f"Hệ thống CA: Đã cập nhật hồ sơ và cấp chứng thư số mới cho tài khoản {user_id}."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -556,7 +547,7 @@ async def user_update_profile(
         )
         with open(cert_path, "wb") as f:
             f.write(new_cert.public_bytes(serialization.Encoding.PEM))
-            
+        sync_storage_to_db()
         return {"status": "success", "message": "Đã tái mã hóa cấu trúc tệp khóa và ký cấp chứng thư mới thành công."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -567,12 +558,9 @@ async def upload_user_signature(
     current_password: str = Form(...),
     signature_file: UploadFile = File(...)
 ):
-    """Cho phép người dùng tải lên ảnh chữ ký cá nhân (khuyến nghị PNG đã tách nền
-    trong suốt), dùng thay cho logo chung của trường khi đóng dấu ký số."""
     key_path = os.path.join(USER_STORAGE, f"{user_id}_private.pem")
     if not os.path.exists(key_path):
         raise HTTPException(status_code=404, detail="Không tìm thấy tệp hồ sơ mật mã thực thể.")
-
     try:
         with open(key_path, "rb") as f:
             serialization.load_pem_private_key(f.read(), password=current_password.encode())
@@ -584,9 +572,6 @@ async def upload_user_signature(
         raise HTTPException(status_code=400, detail="Tệp ảnh chữ ký trống.")
 
     try:
-        # Chuẩn hóa MỌI định dạng ảnh đầu vào (jpg, webp, png...) về PNG có kênh
-        # alpha (RGBA) để giữ được nền trong suốt nếu ảnh gốc đã tách nền, và để
-        # PdfImage (pyhanko) luôn nhận đúng 1 định dạng thống nhất khi đóng dấu.
         img = Image.open(io.BytesIO(raw_bytes))
         img = img.convert("RGBA")
         out_path = os.path.join(USER_STORAGE, f"{user_id}_signature.png")
@@ -594,6 +579,7 @@ async def upload_user_signature(
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Tệp tải lên không phải ảnh hợp lệ: {str(e)}")
 
+    sync_storage_to_db()
     return {"status": "success", "message": "Đã cập nhật ảnh chữ ký cá nhân."}
 
 @app.get("/api/v1/user/session-status/{user_id}")
@@ -923,6 +909,42 @@ async def get_verification_history():
             return [dict(row) for row in rows]
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    
+def sync_db_to_storage():
+    """Tải toàn bộ file từ PostgreSQL xuống lại thư mục storage khi server restart"""
+    try:
+        with get_session() as db:
+            records = db.query(FileStorage).all()
+            for r in records:
+                full_path = os.path.join(PROJECT_ROOT, r.file_path)
+                os.makedirs(os.path.dirname(full_path), exist_ok=True)
+                with open(full_path, "wb") as f:
+                    f.write(r.file_data)
+    except Exception as e:
+        print(f"Bỏ qua đồng bộ file DB lần đầu: {e}")
+
+def sync_storage_to_db():
+    """Đẩy toàn bộ thư mục storage (CA, User) hiện tại lên PostgreSQL"""
+    try:
+        with get_session() as db:
+            for root_dir, _, files in os.walk(os.path.join(PROJECT_ROOT, "storage")):
+                # Không lưu rác SQLite cũ lên Postgres
+                if "storage/db" in root_dir.replace("\\", "/"): 
+                    continue
+                for file in files:
+                    full_path = os.path.join(root_dir, file)
+                    rel_path = os.path.relpath(full_path, PROJECT_ROOT).replace("\\", "/")
+                    
+                    with open(full_path, "rb") as f:
+                        data = f.read()
+                    
+                    record = db.query(FileStorage).filter_by(file_path=rel_path).first()
+                    if record:
+                        record.file_data = data
+                    else:
+                        db.add(FileStorage(file_path=rel_path, file_data=data))
+    except Exception as e:
+        print(f"Lỗi đẩy file lên DB: {e}")
 
 if __name__ == "__main__":
     import uvicorn
