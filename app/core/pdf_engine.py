@@ -30,11 +30,11 @@ FONT_PATH = os.path.join(PROJECT_ROOT, "app", "static", "fonts", "NotoSans-Itali
 # ==== Cấu hình vị trí & hình thức khung ký (dễ chỉnh sau này) ====
 STAMP_MARGIN_TOP = 18      # khoảng cách từ mép TRÊN trang xuống khung ký (points)
 STAMP_MARGIN_LEFT = 18     # khoảng cách từ mép TRÁI trang (points)
-STAMP_WIDTH = 170          # thu nhỏ chiều rộng khung ký (trước đây 230)
+STAMP_WIDTH = 170          # thu nhỏ chiều rộng khung ký 
 STAMP_HEIGHT = 55
 STAMP_GAP_BETWEEN_SIGS = 62   # khoảng hạ xuống cho mỗi chữ ký kế tiếp trên cùng 1 văn bản
-STAMP_BORDER_COLOR = (0, 0, 0)  # màu viền khung ký: ĐEN (trước đây xanh lá pastel)
-STAMP_BORDER_WIDTH = 1.2
+STAMP_BORDER_COLOR = (8, 54, 103)  # màu viền khung ký: xanh navy (RGB 8,54,103) giống màu CTUT
+STAMP_BORDER_WIDTH = 1.0
 
 _TEXTSTAMPSTYLE_PARAMS = set(inspect.signature(TextStampStyle.__init__).parameters)
 
@@ -135,13 +135,16 @@ class PDFEngine:
                 stamping_box = (box_x1, max(10, box_y1), box_x2, max(10 + effective_height, box_y2))
 
                 vn_tz = ZoneInfo("Asia/Ho_Chi_Minh")
-                # current_time_str = datetime.datetime.now(vn_tz).strftime("%d-%m-%Y %H:%M:%S")
                 now_vn = datetime.datetime.now(vn_tz)
 
-                stamp_lines = [f"Ký bởi: {signer_real_name}"]
+                name_line = f"Ký bởi: {signer_real_name}"
+                time_line = f"Lúc: {now_vn.strftime('%d-%m-%Y %H:%M:%S')}"
+                pad_spaces = max(0, len(name_line) - len(time_line) + 6)
+                stamp_lines = []
+                stamp_lines.append(name_line)
                 if signer_title:
-                    stamp_lines.append(f"Chức vụ: {signer_title}")
-                stamp_lines.append(f"Lúc: {now_vn.strftime('%d-%m-%Y %H:%M')}")
+                    stamp_lines.insert(1, f"Chức vụ: {signer_title}")
+                stamp_lines.append(time_line + (" " * pad_spaces))
                 stamp_text = "\n".join(stamp_lines)
 
                 user_signature_path = os.path.join(STORAGE_USERS, f"{user_id}_signature.png")
