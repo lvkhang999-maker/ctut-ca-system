@@ -12,3 +12,4 @@ pyHanko[opentype]
 psycopg2-binary
 requests
 Pillow
+tzdata
