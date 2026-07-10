@@ -137,12 +137,15 @@ class PDFEngine:
                 stamping_box = (box_x1, max(10, box_y1), box_x2, max(10 + effective_height, box_y2))
 
                 vn_tz = ZoneInfo("Asia/Ho_Chi_Minh")
-                current_time_str = datetime.datetime.now(vn_tz).strftime("%d-%m-%Y %H:%M:%S")
+                # current_time_str = datetime.datetime.now(vn_tz).strftime("%d-%m-%Y %H:%M:%S")
+                now_vn = datetime.datetime.now(vn_tz)
 
                 stamp_lines = [f"Ký bởi: {signer_real_name}"]
                 if signer_title:
                     stamp_lines.append(f"Chức vụ: {signer_title}")
-                stamp_lines.append(f"Thời gian: {current_time_str}")
+
+                stamp_lines.append(f"Ngày ký: {now_vn.strftime('%d-%m-%Y')}")
+                stamp_lines.append(f"Giờ ký: {now_vn.strftime('%H:%M:%S')}")
                 stamp_text = "\n".join(stamp_lines)
 
                 user_signature_path = os.path.join(STORAGE_USERS, f"{user_id}_signature.png")
@@ -176,7 +179,7 @@ class PDFEngine:
                     inner_content_layout=SimpleBoxLayoutRule(
                         x_align=AxisAlignment.ALIGN_MAX,
                         y_align=AxisAlignment.ALIGN_MIN,
-                        margins=Margins(left=2, right=4, top=2, bottom=3),
+                        margins=Margins(left=2, right=2, top=2, bottom=3),
                     ),
                     border_width=STAMP_BORDER_WIDTH,
                     border_color=STAMP_BORDER_COLOR,
