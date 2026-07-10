@@ -169,7 +169,7 @@ class PDFEngine:
 
                     background_opacity=0.95,
                     text_box_style=text_box_style,
-                    text_layout=SimpleBoxLayoutRule(
+                    inner_content_layout=SimpleBoxLayoutRule(
                         x_align=AxisAlignment.ALIGN_MAX,
                         y_align=AxisAlignment.ALIGN_MID,
                         margins=Margins(left=75, right=5, top=2, bottom=2),
