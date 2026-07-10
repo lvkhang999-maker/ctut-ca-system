@@ -172,7 +172,7 @@ class PDFEngine:
                     inner_content_layout=SimpleBoxLayoutRule(
                         x_align=AxisAlignment.ALIGN_MAX,
                         y_align=AxisAlignment.ALIGN_MID,
-                        margins=Margins(left=75, right=5, top=2, bottom=2),
+                        margins=Margins(left=60, right=5, top=2, bottom=2),
                     ),
                     border_width=STAMP_BORDER_WIDTH,
                     border_color=STAMP_BORDER_COLOR,
