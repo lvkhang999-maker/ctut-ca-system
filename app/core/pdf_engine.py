@@ -48,7 +48,7 @@ class PDFEngine:
     @staticmethod
     def sanitize_pdf(input_path: str, output_path: str):
         """Tiền xử lý file: CHỈ ÁP DỤNG KHI FILE CHƯA TỪNG BỊ KÝ"""
-        reader = PdfReader(input_path)
+        reader = PdfReader(input_path, strict=False)
         writer = PdfWriter()
         for page in reader.pages:
             writer.add_page(page)
@@ -59,9 +59,6 @@ class PDFEngine:
     def sign_pdf(user_id: str, user_password: str, input_pdf_path: str, output_pdf_path: str,
                  stamp_ratio_x: float = None, stamp_ratio_y: float = None, stamp_page_index: int = 0,
                  stamp_width_pt: float = None, stamp_height_pt: float = None):
-        # Kích thước khung ký: dùng giá trị người dùng kéo-giãn ở giao diện nếu có,
-        # kẹp trong khoảng hợp lý để tránh giá trị bất thường (âm, quá nhỏ/quá to)
-        # từ request bị thao túng. Nếu không truyền, giữ nguyên mặc định cũ.
         effective_width = STAMP_WIDTH
         effective_height = STAMP_HEIGHT
         if stamp_width_pt is not None and stamp_width_pt > 0:
@@ -80,7 +77,7 @@ class PDFEngine:
         detection_failed = False
         try:
             with open(input_pdf_path, 'rb') as inf:
-                reader = PdfFileReader(inf)
+                reader = PdfFileReader(inf, strict=False)
                 sig_count = len(reader.embedded_signatures)
         except Exception:
             detection_failed = True
@@ -111,7 +108,7 @@ class PDFEngine:
             signer_title = ""
         try:
             with open(target_input_path, 'rb') as inf:
-                w = IncrementalPdfFileWriter(inf)
+                w = IncrementalPdfFileWriter(inf, strict=False)
 
                 # Tạo Định danh Field ID độc nhất tránh xung đột các lớp chữ ký
                 unique_sig_id = f"Signature_CTUT_{user_id}_{uuid.uuid4().hex[:6]}"
