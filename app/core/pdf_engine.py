@@ -161,23 +161,18 @@ class PDFEngine:
                 stamp_style = _build_stamp_style(
                     stamp_text=stamp_text,
                     background=background_image,
-                    # Trước đây ảnh nền canh GIỮA khung (ALIGN_MID) nên đè thẳng lên
-                    # khối chữ "Ký bởi/Thời gian" đặt ở góc phải-dưới -> rối mắt, mờ.
-                    # Giờ dịch ảnh sang góc TRÁI (ALIGN_MIN) để 2 vùng tách biệt nhau,
-                    # không còn chồng lấn với khối chữ.
                     background_layout=SimpleBoxLayoutRule(
                         x_align=AxisAlignment.ALIGN_MIN,
                         y_align=AxisAlignment.ALIGN_MID,
-                        margins=Margins(left=3, right=0, top=2, bottom=2),
+                        margins=Margins(left=5, right=95, top=5, bottom=5),
                     ),
-                    # Đây là ảnh CHỮ KÝ THẬT của người dùng (không còn là logo mờ kiểu
-                    # watermark như trước), nên cần hiển thị rõ hẳn thay vì mờ ảo 0.22.
+
                     background_opacity=0.95,
                     text_box_style=text_box_style,
                     text_layout=SimpleBoxLayoutRule(
                         x_align=AxisAlignment.ALIGN_MAX,
-                        y_align=AxisAlignment.ALIGN_MIN,
-                        margins=Margins(left=2, right=2, top=2, bottom=3),
+                        y_align=AxisAlignment.ALIGN_MID,
+                        margins=Margins(left=75, right=5, top=2, bottom=2),
                     ),
                     border_width=STAMP_BORDER_WIDTH,
                     border_color=STAMP_BORDER_COLOR,
