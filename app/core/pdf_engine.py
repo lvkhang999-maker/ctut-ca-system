@@ -39,8 +39,6 @@ STAMP_BORDER_WIDTH = 1.2
 _TEXTSTAMPSTYLE_PARAMS = set(inspect.signature(TextStampStyle.__init__).parameters)
 
 def _build_stamp_style(**kwargs):
-    """Tạo TextStampStyle, tự động lược bỏ các tham số mà phiên bản pyhanko
-    hiện tại không hỗ trợ (vd: border_color trên bản cũ) để tránh crash."""
     supported_kwargs = {k: v for k, v in kwargs.items() if k in _TEXTSTAMPSTYLE_PARAMS}
     return TextStampStyle(**supported_kwargs)
 
@@ -164,15 +162,15 @@ class PDFEngine:
                     background_layout=SimpleBoxLayoutRule(
                         x_align=AxisAlignment.ALIGN_MIN,
                         y_align=AxisAlignment.ALIGN_MID,
-                        margins=Margins(left=5, right=95, top=5, bottom=5),
+                        margins=Margins(left=2, right=110, top=2, bottom=2),
                     ),
 
                     background_opacity=0.95,
                     text_box_style=text_box_style,
                     inner_content_layout=SimpleBoxLayoutRule(
-                        x_align=AxisAlignment.ALIGN_MAX,
+                        x_align=AxisAlignment.ALIGN_MIN,
                         y_align=AxisAlignment.ALIGN_MID,
-                        margins=Margins(left=60, right=5, top=2, bottom=2),
+                        margins=Margins(left=65, right=2, top=2, bottom=2),
                     ),
                     border_width=STAMP_BORDER_WIDTH,
                     border_color=STAMP_BORDER_COLOR,
