@@ -9,7 +9,7 @@ from pyhanko.pdf_utils.reader import PdfFileReader
 from pyhanko.pdf_utils.incremental_writer import IncrementalPdfFileWriter
 from pyhanko.pdf_utils.images import PdfImage
 from pyhanko.pdf_utils.layout import SimpleBoxLayoutRule, AxisAlignment, Margins
-from pyhanko.pdf_utils.text import TextBoxStyle
+from pyhanko.pdf_utils.text import TextBoxStyle, TextAlign
 from pyhanko.pdf_utils.font.opentype import GlyphAccumulatorFactory
 from pyhanko.sign import fields, signers
 from pyhanko.stamp import TextStampStyle
@@ -143,7 +143,6 @@ class PDFEngine:
                 stamp_lines = [f"Ký bởi: {signer_real_name}"]
                 if signer_title:
                     stamp_lines.append(f"Chức vụ: {signer_title}")
-
                 stamp_lines.append(f"Ngày ký: {now_vn.strftime('%d-%m-%Y')}")
                 stamp_lines.append(f"Giờ ký: {now_vn.strftime('%H:%M:%S')}")
                 stamp_text = "\n".join(stamp_lines)
@@ -156,8 +155,8 @@ class PDFEngine:
                 else:
                     background_image = None
                 text_box_style = (
-                    TextBoxStyle(font=GlyphAccumulatorFactory(FONT_PATH), font_size=6)
-                    if os.path.exists(FONT_PATH) else TextBoxStyle(font_size=6)
+                    TextBoxStyle(font=GlyphAccumulatorFactory(FONT_PATH), font_size=6, text_align=TextAlign.RIGHT)
+                    if os.path.exists(FONT_PATH) else TextBoxStyle(font_size=6, text_align=TextAlign.RIGHT)
                 )
 
                 stamp_style = _build_stamp_style(
