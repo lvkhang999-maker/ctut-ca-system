@@ -57,8 +57,18 @@ class PDFEngine:
 
     @staticmethod
     def sign_pdf(user_id: str, user_password: str, input_pdf_path: str, output_pdf_path: str,
-                 stamp_ratio_x: float = None, stamp_ratio_y: float = None, stamp_page_index: int = 0):
-        
+                 stamp_ratio_x: float = None, stamp_ratio_y: float = None, stamp_page_index: int = 0,
+                 stamp_width_pt: float = None, stamp_height_pt: float = None):
+        # Kích thước khung ký: dùng giá trị người dùng kéo-giãn ở giao diện nếu có,
+        # kẹp trong khoảng hợp lý để tránh giá trị bất thường (âm, quá nhỏ/quá to)
+        # từ request bị thao túng. Nếu không truyền, giữ nguyên mặc định cũ.
+        effective_width = STAMP_WIDTH
+        effective_height = STAMP_HEIGHT
+        if stamp_width_pt is not None and stamp_width_pt > 0:
+            effective_width = max(60, min(stamp_width_pt, 400))
+        if stamp_height_pt is not None and stamp_height_pt > 0:
+            effective_height = max(30, min(stamp_height_pt, 200))
+
         key_path = os.path.join(STORAGE_USERS, f"{user_id}_private.pem")
         cert_path = os.path.join(STORAGE_USERS, f"{user_id}_cert.pem")
         
@@ -116,18 +126,18 @@ class PDFEngine:
                 if stamp_ratio_x is not None and stamp_ratio_y is not None:
                     box_x1 = stamp_ratio_x * page_width
                     box_y2 = page_height - (stamp_ratio_y * page_height) - offset
-                    box_y1 = box_y2 - STAMP_HEIGHT
-                    box_x2 = box_x1 + STAMP_WIDTH
+                    box_y1 = box_y2 - effective_height
+                    box_x2 = box_x1 + effective_width
 
-                    box_x1 = max(0, min(box_x1, page_width - STAMP_WIDTH))
-                    box_x2 = box_x1 + STAMP_WIDTH
+                    box_x1 = max(0, min(box_x1, page_width - effective_width))
+                    box_x2 = box_x1 + effective_width
                 else:
                     box_y2 = page_height - STAMP_MARGIN_TOP - offset
-                    box_y1 = box_y2 - STAMP_HEIGHT
+                    box_y1 = box_y2 - effective_height
                     box_x1 = STAMP_MARGIN_LEFT
-                    box_x2 = STAMP_MARGIN_LEFT + STAMP_WIDTH
+                    box_x2 = STAMP_MARGIN_LEFT + effective_width
 
-                stamping_box = (box_x1, max(10, box_y1), box_x2, max(10 + STAMP_HEIGHT, box_y2))
+                stamping_box = (box_x1, max(10, box_y1), box_x2, max(10 + effective_height, box_y2))
 
                 vn_tz = ZoneInfo("Asia/Ho_Chi_Minh")
                 current_time_str = datetime.datetime.now(vn_tz).strftime("%d-%m-%Y %H:%M:%S")
@@ -153,11 +163,18 @@ class PDFEngine:
                 stamp_style = _build_stamp_style(
                     stamp_text=stamp_text,
                     background=background_image,
+                    # Trước đây ảnh nền canh GIỮA khung (ALIGN_MID) nên đè thẳng lên
+                    # khối chữ "Ký bởi/Thời gian" đặt ở góc phải-dưới -> rối mắt, mờ.
+                    # Giờ dịch ảnh sang góc TRÁI (ALIGN_MIN) để 2 vùng tách biệt nhau,
+                    # không còn chồng lấn với khối chữ.
                     background_layout=SimpleBoxLayoutRule(
-                        x_align=AxisAlignment.ALIGN_MID,
+                        x_align=AxisAlignment.ALIGN_MIN,
                         y_align=AxisAlignment.ALIGN_MID,
+                        margins=Margins(left=3, right=0, top=2, bottom=2),
                     ),
-                    background_opacity=0.22,
+                    # Đây là ảnh CHỮ KÝ THẬT của người dùng (không còn là logo mờ kiểu
+                    # watermark như trước), nên cần hiển thị rõ hẳn thay vì mờ ảo 0.22.
+                    background_opacity=0.95,
                     text_box_style=text_box_style,
                     inner_content_layout=SimpleBoxLayoutRule(
                         x_align=AxisAlignment.ALIGN_MAX,

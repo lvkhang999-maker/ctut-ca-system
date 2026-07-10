@@ -656,7 +656,9 @@ async def sign_documents_in_batch(
     files: List[UploadFile] = File(...),
     stamp_ratio_x: float = Form(None),
     stamp_ratio_y: float = Form(None),
-    stamp_page_index: int = Form(0)
+    stamp_page_index: int = Form(0),
+    stamp_width_pt: float = Form(None),
+    stamp_height_pt: float = Form(None)
 ):
     # Kiểm tra OTP Session
     if _user_active_sessions.get(user_id) != True:
@@ -696,7 +698,9 @@ async def sign_documents_in_batch(
             output_path,
             stamp_ratio_x=stamp_ratio_x,
             stamp_ratio_y=stamp_ratio_y,
-            stamp_page_index=stamp_page_index
+            stamp_page_index=stamp_page_index,
+            stamp_width_pt=stamp_width_pt,
+            stamp_height_pt=stamp_height_pt
         )
         return output_path
 

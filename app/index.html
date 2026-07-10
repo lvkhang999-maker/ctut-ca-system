@@ -151,7 +151,7 @@
                                     <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
                                         <label class="form-label small fw-bold text-secondary m-0">
                                             <i class="fa-solid fa-arrows-up-down-left-right me-1 text-primary"></i>
-                                            Kéo khung xanh để chọn vị trí đóng dấu (áp dụng cho toàn bộ các văn bản)
+                                            Kéo khung để chọn vị trí, kéo góc dưới-phải (■) để chỉnh kích thước (áp dụng cho toàn bộ các văn bản)
                                         </label>
                                         <button type="button" class="btn btn-sm btn-link text-secondary p-0"
                                             onclick="resetStampPosition()">Đặt lại mặc định</button>
@@ -185,6 +185,9 @@
                                             <div id="stamp_preview_text_area"
                                                 style="position:absolute; right:2px; bottom:2px; font-size:6px; line-height:1.2; color:#000; text-align:right; background:rgba(255,255,255,0.6); padding:1px 2px; border-radius:2px;">
                                                 Ký bởi: ...<br>Thời gian: ...
+                                            </div>
+                                            <div id="stamp_resize_handle"
+                                                style="position:absolute; right:0; bottom:0; width:14px; height:14px; cursor:nwse-resize; background:#000; opacity:0.55; border-top-left-radius:4px;">
                                             </div>
                                         </div>
                                     </div>

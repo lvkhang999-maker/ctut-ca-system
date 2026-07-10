@@ -1576,10 +1576,17 @@ let stampRatioX = null;
 let stampRatioY = null;
 let currentStampPdfDoc = null;   // Đối tượng PDF (pdf.js) đã load, để đổi trang mà không cần đọc lại file
 let currentStampPageIndex = 0;   // Trang đang xem trong preview (đếm từ 0)
-// Kích thước khung dấu THẬT trên PDF (điểm PDF), phải khớp với STAMP_WIDTH/
-// STAMP_HEIGHT bên pdf_engine.py để khung xem trước đúng tỷ lệ thật.
-const STAMP_WIDTH_PT = 170;
-const STAMP_HEIGHT_PT = 55;
+// Kích thước khung dấu THẬT trên PDF (điểm PDF). Trước đây là hằng số cố định
+// (170x55), giờ có thể thay đổi qua tay cầm kéo-giãn ở góc dưới-phải của khung
+// preview, nên chuyển thành biến (khởi tạo bằng giá trị mặc định cũ).
+let stampWidthPt = 170;
+let stampHeightPt = 55;
+// Giới hạn kích thước hợp lý để khung không bị kéo quá nhỏ (không đọc được chữ)
+// hoặc quá to (che hết nội dung văn bản).
+const STAMP_MIN_WIDTH_PT = 60;
+const STAMP_MIN_HEIGHT_PT = 30;
+const STAMP_MAX_WIDTH_PT = 400;
+const STAMP_MAX_HEIGHT_PT = 200;
 // Vị trí mặc định (khớp STAMP_MARGIN_TOP/LEFT = 18 bên pdf_engine.py)
 const STAMP_DEFAULT_MARGIN_PT = 18;
 
@@ -2566,8 +2573,8 @@ function positionStampDragBox() {
     const pagePtWidth = parseFloat(picker.dataset.pagePtWidth);
     const pagePtHeight = parseFloat(picker.dataset.pagePtHeight);
 
-    const boxPxWidth = (STAMP_WIDTH_PT / pagePtWidth) * canvasPxWidth;
-    const boxPxHeight = (STAMP_HEIGHT_PT / pagePtHeight) * canvasPxHeight;
+    const boxPxWidth = (stampWidthPt / pagePtWidth) * canvasPxWidth;
+    const boxPxHeight = (stampHeightPt / pagePtHeight) * canvasPxHeight;
 
     box.style.width = `${boxPxWidth}px`;
     box.style.height = `${boxPxHeight}px`;
@@ -2582,6 +2589,9 @@ function resetStampPosition() {
     if (!pagePtWidth || !pagePtHeight) return;
     stampRatioX = STAMP_DEFAULT_MARGIN_PT / pagePtWidth;
     stampRatioY = STAMP_DEFAULT_MARGIN_PT / pagePtHeight;
+    // Đặt lại mặc định cũng trả kích thước về giá trị gốc (170x55pt), không chỉ vị trí.
+    stampWidthPt = 170;
+    stampHeightPt = 55;
     positionStampDragBox();
 }
 
@@ -2592,8 +2602,12 @@ function initStampDragHandlers() {
 
     const box = document.getElementById("stamp_drag_box");
     const wrapper = document.getElementById("stamp_preview_wrapper");
+    const resizeHandle = document.getElementById("stamp_resize_handle");
     let isDragging = false;
+    let isResizing = false;
     let dragOffsetX = 0, dragOffsetY = 0;
+    let resizeStartX = 0, resizeStartY = 0;
+    let resizeStartWidthPx = 0, resizeStartHeightPx = 0;
 
     function getPointerPos(evt) {
         const point = evt.touches ? evt.touches[0] : evt;
@@ -2608,6 +2622,7 @@ function initStampDragHandlers() {
         dragOffsetX = pos.x - rect.left;
         dragOffsetY = pos.y - rect.top;
         evt.preventDefault();
+        evt.stopPropagation();
     }
 
     function onDragMove(evt) {
@@ -2640,12 +2655,69 @@ function initStampDragHandlers() {
         box.style.cursor = "grab";
     }
 
+    // ---- Kéo-giãn kích thước (tay cầm ở góc dưới-phải khung) ----
+    function onResizeStart(evt) {
+        isResizing = true;
+        const pos = getPointerPos(evt);
+        resizeStartX = pos.x;
+        resizeStartY = pos.y;
+        resizeStartWidthPx = box.offsetWidth;
+        resizeStartHeightPx = box.offsetHeight;
+        evt.preventDefault();
+        evt.stopPropagation(); // không để onDragStart của khung cha bắt luôn sự kiện này
+    }
+
+    function onResizeMove(evt) {
+        if (!isResizing) return;
+        const picker = document.getElementById("stamp_position_picker");
+        const canvasPxWidth = parseFloat(picker.dataset.canvasPxWidth);
+        const canvasPxHeight = parseFloat(picker.dataset.canvasPxHeight);
+        const pagePtWidth = parseFloat(picker.dataset.pagePtWidth);
+        const pagePtHeight = parseFloat(picker.dataset.pagePtHeight);
+        const pos = getPointerPos(evt);
+
+        let newWidthPx = resizeStartWidthPx + (pos.x - resizeStartX);
+        let newHeightPx = resizeStartHeightPx + (pos.y - resizeStartY);
+
+        // Quy đổi giới hạn min/max (tính bằng điểm PDF) sang pixel preview để kẹp trực tiếp.
+        const minWidthPx = (STAMP_MIN_WIDTH_PT / pagePtWidth) * canvasPxWidth;
+        const maxWidthPx = (STAMP_MAX_WIDTH_PT / pagePtWidth) * canvasPxWidth;
+        const minHeightPx = (STAMP_MIN_HEIGHT_PT / pagePtHeight) * canvasPxHeight;
+        const maxHeightPx = (STAMP_MAX_HEIGHT_PT / pagePtHeight) * canvasPxHeight;
+
+        const boxLeftPx = box.offsetLeft;
+        const boxTopPx = box.offsetTop;
+        // Không cho khung giãn ra khỏi biên phải/dưới của trang.
+        newWidthPx = Math.max(minWidthPx, Math.min(newWidthPx, maxWidthPx, canvasPxWidth - boxLeftPx));
+        newHeightPx = Math.max(minHeightPx, Math.min(newHeightPx, maxHeightPx, canvasPxHeight - boxTopPx));
+
+        box.style.width = `${newWidthPx}px`;
+        box.style.height = `${newHeightPx}px`;
+
+        stampWidthPt = (newWidthPx / canvasPxWidth) * pagePtWidth;
+        stampHeightPt = (newHeightPx / canvasPxHeight) * pagePtHeight;
+        evt.preventDefault();
+    }
+
+    function onResizeEnd() {
+        isResizing = false;
+    }
+
     box.addEventListener("mousedown", onDragStart);
     document.addEventListener("mousemove", onDragMove);
     document.addEventListener("mouseup", onDragEnd);
     box.addEventListener("touchstart", onDragStart, { passive: false });
     document.addEventListener("touchmove", onDragMove, { passive: false });
     document.addEventListener("touchend", onDragEnd);
+
+    if (resizeHandle) {
+        resizeHandle.addEventListener("mousedown", onResizeStart);
+        document.addEventListener("mousemove", onResizeMove);
+        document.addEventListener("mouseup", onResizeEnd);
+        resizeHandle.addEventListener("touchstart", onResizeStart, { passive: false });
+        document.addEventListener("touchmove", onResizeMove, { passive: false });
+        document.addEventListener("touchend", onResizeEnd);
+    }
 }
 
 async function executeUploadSignature() {
@@ -2705,6 +2777,10 @@ async function executeBatchSign() {
         formData.append("stamp_ratio_x", stampRatioX);
         formData.append("stamp_ratio_y", stampRatioY);
         formData.append("stamp_page_index", currentStampPageIndex);
+        // Kích thước khung do người dùng kéo-giãn (nếu chưa kéo gì thì vẫn gửi giá
+        // trị mặc định 170x55pt trong stampWidthPt/stampHeightPt).
+        formData.append("stamp_width_pt", stampWidthPt);
+        formData.append("stamp_height_pt", stampHeightPt);
     }
 
     try {
