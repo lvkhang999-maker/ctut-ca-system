@@ -176,7 +176,7 @@ class PDFEngine:
                     # watermark như trước), nên cần hiển thị rõ hẳn thay vì mờ ảo 0.22.
                     background_opacity=0.95,
                     text_box_style=text_box_style,
-                    inner_content_layout=SimpleBoxLayoutRule(
+                    text_layout=SimpleBoxLayoutRule(
                         x_align=AxisAlignment.ALIGN_MAX,
                         y_align=AxisAlignment.ALIGN_MIN,
                         margins=Margins(left=2, right=2, top=2, bottom=3),
