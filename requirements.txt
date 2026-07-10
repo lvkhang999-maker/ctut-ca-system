@@ -9,7 +9,8 @@ pypdf==4.2.0
 passlib[bcrypt]==1.7.4
 bcrypt==4.0.1
 pyHanko[opentype]
-psycopg2-binary
 requests
 Pillow
 tzdata
+SQLAlchemy>=2.0.0
+psycopg2-binary>=2.9.0
