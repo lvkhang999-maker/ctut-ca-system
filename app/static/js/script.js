@@ -937,11 +937,11 @@ function updateStampPreviewInfoText() {
     const now = new Date();
     const pad = (n) => String(n).padStart(2, "0");
     
-    // Tách chuỗi theo định dạng mới
+    // Tạo chuỗi ngày giờ không có giây
     const dateStr = `${pad(now.getDate())}-${pad(now.getMonth() + 1)}-${now.getFullYear()}`;
-    const timeStr = `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+    const timeStr = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
     
-    textArea.innerHTML = `Ký bởi: ${uid}<br>Ngày ký: ${dateStr}<br>Giờ ký: ${timeStr}`;
+    textArea.innerHTML = `Ký bởi: ${uid}<br>Lúc: ${dateStr} ${timeStr}`;
 }
 
 async function loadStampPreviewSignatureImage() {
