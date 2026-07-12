@@ -1,7 +1,6 @@
 # app/main.py
 import os
 import sys
-import sqlite3
 import datetime
 import socket
 import random
@@ -11,8 +10,12 @@ import urllib.parse
 from zoneinfo import ZoneInfo
 
 from app.core.db import get_session
-# Import thêm model FileStorage
-from app.core.db import Base, FileStorage
+# Import các model dùng cho lịch sử ký/thẩm định + tài khoản quản trị. Trước đây
+# 3 bảng này (admin_roles, verification_logs, signing_logs) bị ghi thẳng bằng
+# sqlite3 vào 1 file cục bộ trên ổ đĩa Render -> MẤT SẠCH mỗi lần redeploy vì ổ
+# đĩa Render không bền (ephemeral). Giờ chuyển hẳn sang SQLAlchemy + get_session()
+# giống FileStorage, để dữ liệu thực sự nằm trong PostgreSQL bền vững.
+from app.core.db import Base, FileStorage, AdminRole, VerificationLog, SigningLog
 
 VN_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
 
@@ -56,7 +59,6 @@ from app.core.pdf_engine import PDFEngine
 from app.core.auth_engine import AuthEngine
 
 DB_DIR = os.path.join(PROJECT_ROOT, "storage", "db")
-DB_PATH = os.path.join(DB_DIR, "audit_logs.db")
 USER_STORAGE = os.path.join(PROJECT_ROOT, "storage", "users")
 CA_DIR = os.path.join(PROJECT_ROOT, "storage", "ca")
 
@@ -120,49 +122,19 @@ def init_audit_db():
         with open(root_cert_path, "wb") as f:
             f.write(cert.public_bytes(serialization.Encoding.PEM))
 
-    with sqlite3.connect(DB_PATH) as conn:
-        cursor = conn.cursor()
-        conn.execute("PRAGMA journal_mode=DELETE;")
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS verification_logs (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                timestamp TEXT,
-                filename TEXT,
-                status TEXT,
-                signer TEXT,
-                client_ip TEXT
-            )
-        """)
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS signing_logs (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                timestamp TEXT,
-                filename TEXT,
-                user_id TEXT,
-                signer_name TEXT,
-                status TEXT,
-                detail TEXT,
-                client_ip TEXT
-            )
-        """)
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS admin_roles (
-                username TEXT PRIMARY KEY,
-                password TEXT,
-                role TEXT,
-                is_active INTEGER DEFAULT 1
-            )
-        """)
-        try:
-            cursor.execute("ALTER TABLE admin_roles ADD COLUMN is_active INTEGER DEFAULT 1")
-        except sqlite3.OperationalError:
-            pass
-
+    # QUAN TRỌNG: không còn tự CREATE TABLE bằng sqlite3 ở đây nữa. Toàn bộ bảng
+    # (kể cả admin_roles, verification_logs, signing_logs) giờ do SQLAlchemy tạo
+    # sẵn qua init_db() (gọi trong lifespan(), TRƯỚC hàm này) và sống trong cùng
+    # PostgreSQL với FileStorage - không còn phụ thuộc ổ đĩa cục bộ của Render.
+    with get_session() as db:
         hashed_super = pwd_context.hash("ctut@2026")
-        hashed_admin = pwd_context.hash("123456") 
-        cursor.execute("INSERT OR IGNORE INTO admin_roles VALUES ('superadmin', ?, 'SUPER_ADMIN', 1)", (hashed_super,))
-        cursor.execute("INSERT OR IGNORE INTO admin_roles VALUES ('admincds', ?, 'ADMIN', 1)", (hashed_admin,))
-        conn.commit()
+        hashed_admin = pwd_context.hash("123456")
+        # Tương đương INSERT OR IGNORE: chỉ thêm nếu tài khoản chưa tồn tại, không
+        # ghi đè mật khẩu đã đổi (nếu superadmin/admincds đã từng được đổi mật khẩu).
+        if not db.query(AdminRole).filter_by(username="superadmin").first():
+            db.add(AdminRole(username="superadmin", password=hashed_super, role="SUPER_ADMIN", is_active=1))
+        if not db.query(AdminRole).filter_by(username="admincds").first():
+            db.add(AdminRole(username="admincds", password=hashed_admin, role="ADMIN", is_active=1))
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -213,35 +185,33 @@ def _get_signer_common_name(user_id: str) -> str:
 
 def _log_signing_event(filename: str, user_id: str, signer_name: str, status: str, detail: str, client_ip: str):
     try:
-        current_time = get_vn_now_str()
-        with sqlite3.connect(DB_PATH) as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                INSERT INTO signing_logs (timestamp, filename, user_id, signer_name, status, detail, client_ip)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, (current_time, filename, user_id, signer_name, status, detail, client_ip))
-            conn.commit()
+        with get_session() as db:
+            db.add(SigningLog(
+                timestamp=get_vn_now_str(),
+                filename=filename,
+                user_id=user_id,
+                signer_name=signer_name,
+                status=status,
+                detail=detail,
+                client_ip=client_ip
+            ))
     except Exception:
         pass
 
 
 def verify_admin_privilege(username, password, required_role=None):
-    with sqlite3.connect(DB_PATH) as conn:
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-        # Bước 1: Chỉ lọc tìm tài khoản theo Username
-        cursor.execute("SELECT * FROM admin_roles WHERE username = ?", (username,))
-        user = cursor.fetchone()
-        
-        # Bước 2: Sử dụng thuật toán so sánh an toàn, chống tấn công timing-attack
-        if not user or not pwd_context.verify(password, user["password"]):
+    with get_session() as db:
+        user = db.query(AdminRole).filter_by(username=username).first()
+
+        # Sử dụng thuật toán so sánh an toàn, chống tấn công timing-attack
+        if not user or not pwd_context.verify(password, user.password):
             raise HTTPException(status_code=403, detail="Sai thông tin tài khoản hoặc mật khẩu quản trị.")
-            
-        if user["is_active"] == 0:
+
+        if user.is_active == 0:
             raise HTTPException(status_code=403, detail="Tài khoản quản trị này đã bị vô hiệu hóa quyền truy cập.")
-        if required_role == "SUPER_ADMIN" and user["role"] != "SUPER_ADMIN":
+        if required_role == "SUPER_ADMIN" and user.role != "SUPER_ADMIN":
             raise HTTPException(status_code=403, detail="Thao tác thất bại. Tính năng này yêu cầu đặc quyền Super Admin.")
-        return user["role"]
+        return user.role
 
 # =========================================================================
 # API GATEWAY
@@ -265,26 +235,25 @@ async def admin_toggle_active(
     if admin_user == target_user:
         raise HTTPException(status_code=400, detail="Hệ thống từ chối lệnh tự vô hiệu hóa tài khoản chính mình.")
         
-    with sqlite3.connect(DB_PATH) as conn:
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-        cursor.execute("SELECT role, is_active FROM admin_roles WHERE username = ?", (target_user,))
-        target = cursor.fetchone()
+    with get_session() as db:
+        target = db.query(AdminRole).filter_by(username=target_user).first()
         if not target:
             raise HTTPException(status_code=404, detail="Không tìm thấy tài khoản mục tiêu.")
-        if current_role == "ADMIN" and target["role"] == "SUPER_ADMIN":
+        if current_role == "ADMIN" and target.role == "SUPER_ADMIN":
             raise HTTPException(status_code=403, detail="Yêu cầu từ chối. Bạn không có quyền thay đổi trạng thái của Super Admin.")
-            
-        new_status = 0 if target["is_active"] == 1 else 1
-        cursor.execute("UPDATE admin_roles SET is_active = ? WHERE username = ?", (new_status, target_user))
-        
+
+        new_status = 0 if target.is_active == 1 else 1
+        target.is_active = new_status
+
         status_txt = "VÔ HIỆU HÓA" if new_status == 0 else "KÍCH HOẠT LẠI"
-        cursor.execute("""
-            INSERT INTO verification_logs (timestamp, filename, status, signer, client_ip)
-            VALUES (?, 'Hạ tầng hệ thống', ?, ?, '127.0.0.1')
-        """, (get_vn_now_str(), f"TRẠNG THÁI [{status_txt}]", target_user))
-        conn.commit()
-        
+        db.add(VerificationLog(
+            timestamp=get_vn_now_str(),
+            filename="Hạ tầng hệ thống",
+            status=f"TRẠNG THÁI [{status_txt}]",
+            signer=target_user,
+            client_ip="127.0.0.1"
+        ))
+
     return {"status": "success", "message": f"Đã thực hiện {status_txt} thành công tài khoản '{target_user}'."}
 
 @app.post("/api/v1/admin/assign-role")
@@ -300,19 +269,22 @@ async def admin_assign_role(
         raise HTTPException(status_code=400, detail="Vai trò gán không hợp lệ.")
         
     try:
-        with sqlite3.connect(DB_PATH) as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                INSERT INTO verification_logs (timestamp, filename, status, signer, client_ip)
-                VALUES (?, 'Hạ tầng hệ thống', ?, ?, '127.0.0.1')
-            """, (get_vn_now_str(), f"ỦY QUYỀN [{assigned_role}]", target_user))
-            
+        with get_session() as db:
+            db.add(VerificationLog(
+                timestamp=get_vn_now_str(),
+                filename="Hạ tầng hệ thống",
+                status=f"ỦY QUYỀN [{assigned_role}]",
+                signer=target_user,
+                client_ip="127.0.0.1"
+            ))
+
             hashed_target_pass = pwd_context.hash(target_pass)
-            cursor.execute("""
-        INSERT INTO admin_roles (username, password, role, is_active) VALUES (?, ?, ?, 1)
-        ON CONFLICT(username) DO UPDATE SET password=excluded.password, role=excluded.role
-    """, (target_user, hashed_target_pass, assigned_role))
-            conn.commit()
+            existing = db.query(AdminRole).filter_by(username=target_user).first()
+            if existing:
+                existing.password = hashed_target_pass
+                existing.role = assigned_role
+            else:
+                db.add(AdminRole(username=target_user, password=hashed_target_pass, role=assigned_role, is_active=1))
         return {"status": "success", "message": f"Đã phê duyệt cấp đặc quyền {assigned_role} thành công cho tài khoản '{target_user}'."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -324,17 +296,18 @@ async def get_admin_audit_history(
 ):
     verify_admin_privilege(admin_user, admin_pass)
     try:
-        with sqlite3.connect(DB_PATH) as conn:
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-            cursor.execute("""
-                SELECT timestamp, status, signer, client_ip 
-                FROM verification_logs 
-                WHERE filename = 'Hạ tầng hệ thống' 
-                ORDER BY id DESC LIMIT 500
-            """)
-            rows = cursor.fetchall()
-            return [dict(row) for row in rows]
+        with get_session() as db:
+            rows = (
+                db.query(VerificationLog)
+                .filter_by(filename="Hạ tầng hệ thống")
+                .order_by(VerificationLog.id.desc())
+                .limit(500)
+                .all()
+            )
+            return [
+                {"timestamp": r.timestamp, "status": r.status, "signer": r.signer, "client_ip": r.client_ip}
+                for r in rows
+            ]
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -394,12 +367,12 @@ async def admin_list_roles(
 ):
     verify_admin_privilege(admin_user, admin_pass)
     try:
-        with sqlite3.connect(DB_PATH) as conn:
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-            cursor.execute("SELECT username, role, is_active FROM admin_roles ORDER BY role DESC")
-            rows = cursor.fetchall()
-            return [dict(row) for row in rows]
+        with get_session() as db:
+            rows = db.query(AdminRole).order_by(AdminRole.role.desc()).all()
+            return [
+                {"username": r.username, "role": r.role, "is_active": r.is_active}
+                for r in rows
+            ]
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -738,16 +711,16 @@ async def sign_documents_in_batch(
 @app.get("/api/v1/pdf/signing-history")
 async def get_signing_history():
     try:
-        with sqlite3.connect(DB_PATH) as conn:
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-            cursor.execute("""
-                SELECT timestamp, filename, user_id, signer_name, status, detail, client_ip
-                FROM signing_logs
-                ORDER BY id DESC LIMIT 1000
-            """)
-            rows = cursor.fetchall()
-            return [dict(row) for row in rows]
+        with get_session() as db:
+            rows = db.query(SigningLog).order_by(SigningLog.id.desc()).limit(1000).all()
+            return [
+                {
+                    "timestamp": r.timestamp, "filename": r.filename, "user_id": r.user_id,
+                    "signer_name": r.signer_name, "status": r.status, "detail": r.detail,
+                    "client_ip": r.client_ip
+                }
+                for r in rows
+            ]
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -869,15 +842,16 @@ async def verify_documents_batch(request: Request, files: List[UploadFile] = Fil
                 status_code = "INVALID"
                 status_str = "Chữ ký không hợp lệ"
                 
-        # Ghi log bảo mật vào SQLite
+        # Ghi log bảo mật vào PostgreSQL (qua SQLAlchemy)
         try:
-            with sqlite3.connect(DB_PATH) as conn:
-                cursor = conn.cursor()
-                cursor.execute("""
-                    INSERT INTO verification_logs (timestamp, filename, status, signer, client_ip)
-                    VALUES (?, ?, ?, ?, ?)
-                """, (current_time, filename, status_str, signer_str, client_ip))
-                conn.commit()
+            with get_session() as db:
+                db.add(VerificationLog(
+                    timestamp=current_time,
+                    filename=filename,
+                    status=status_str,
+                    signer=signer_str,
+                    client_ip=client_ip
+                ))
         except Exception:
             pass
             
@@ -900,17 +874,18 @@ async def verify_documents_batch(request: Request, files: List[UploadFile] = Fil
 @app.get("/api/v1/pdf/verify-history")
 async def get_verification_history():
     try:
-        with sqlite3.connect(DB_PATH) as conn:
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-            cursor.execute("""
-                SELECT timestamp, filename, status, signer, client_ip 
-                FROM verification_logs 
-                WHERE filename != 'Hạ tầng hệ thống' 
-                ORDER BY id DESC LIMIT 1000
-            """)
-            rows = cursor.fetchall()
-            return [dict(row) for row in rows]
+        with get_session() as db:
+            rows = (
+                db.query(VerificationLog)
+                .filter(VerificationLog.filename != "Hạ tầng hệ thống")
+                .order_by(VerificationLog.id.desc())
+                .limit(1000)
+                .all()
+            )
+            return [
+                {"timestamp": r.timestamp, "filename": r.filename, "status": r.status, "signer": r.signer, "client_ip": r.client_ip}
+                for r in rows
+            ]
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     
