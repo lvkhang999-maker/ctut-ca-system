@@ -76,7 +76,32 @@ class PDFEngine:
         try:
             with open(input_pdf_path, 'rb') as inf:
                 reader = PdfFileReader(inf, strict=False)
-                sig_count = len(reader.embedded_signatures)
+                embedded_sigs = reader.embedded_signatures
+                sig_count = len(embedded_sigs)
+
+                # QUAN TRỌNG - RÀNG BUỘC MỚI: nếu văn bản đã có chữ ký từ trước, phải
+                # đảm bảo TẤT CẢ chữ ký đó vẫn còn TOÀN VẸN (nội dung chưa bị sửa sau
+                # khi ký) trước khi cho phép ký thêm lớp mới. Nếu không kiểm tra, ai đó
+                # có thể chỉnh sửa nội dung 1 văn bản đã ký (phá vỡ chữ ký cũ) rồi ký
+                # đè 1 lớp chữ ký mới hợp lệ lên trên - nhìn thoáng qua tưởng ổn nhưng
+                # thực chất nội dung gốc đã bị giả mạo. Từ chối ký thẳng trong trường
+                # hợp này thay vì chỉ phát hiện được lúc thẩm định (đã quá muộn).
+                for sig in embedded_sigs:
+                    try:
+                        status = validate_pdf_signature(sig)
+                    except Exception:
+                        # Không xác định được trạng thái chữ ký này (file hơi khác
+                        # chuẩn) -> không chặn ký để tránh chặn nhầm (false-positive).
+                        continue
+                    if not status.intact:
+                        raise ValueError(
+                            "Văn bản đã bị chỉnh sửa nội dung sau khi được ký trước đó "
+                            "(một chữ ký hiện có trong tệp không còn toàn vẹn). Hệ thống "
+                            "từ chối ký thêm lên văn bản đã bị thay đổi/giả mạo. Vui lòng "
+                            "dùng lại đúng bản gốc chưa bị chỉnh sửa."
+                        )
+        except ValueError:
+            raise
         except Exception:
             detection_failed = True
         if sig_count == 0 and not detection_failed:
