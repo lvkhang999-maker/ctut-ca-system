@@ -8,13 +8,8 @@ import uuid
 import zipfile
 import urllib.parse
 from zoneinfo import ZoneInfo
+from app.core.db import FileStorage, get_session
 
-from app.core.db import get_session
-# Import các model dùng cho lịch sử ký/thẩm định + tài khoản quản trị. Trước đây
-# 3 bảng này (admin_roles, verification_logs, signing_logs) bị ghi thẳng bằng
-# sqlite3 vào 1 file cục bộ trên ổ đĩa Render -> MẤT SẠCH mỗi lần redeploy vì ổ
-# đĩa Render không bền (ephemeral). Giờ chuyển hẳn sang SQLAlchemy + get_session()
-# giống FileStorage, để dữ liệu thực sự nằm trong PostgreSQL bền vững.
 from app.core.db import Base, FileStorage, AdminRole, VerificationLog, SigningLog
 
 VN_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
@@ -121,16 +116,9 @@ def init_audit_db():
         )
         with open(root_cert_path, "wb") as f:
             f.write(cert.public_bytes(serialization.Encoding.PEM))
-
-    # QUAN TRỌNG: không còn tự CREATE TABLE bằng sqlite3 ở đây nữa. Toàn bộ bảng
-    # (kể cả admin_roles, verification_logs, signing_logs) giờ do SQLAlchemy tạo
-    # sẵn qua init_db() (gọi trong lifespan(), TRƯỚC hàm này) và sống trong cùng
-    # PostgreSQL với FileStorage - không còn phụ thuộc ổ đĩa cục bộ của Render.
     with get_session() as db:
         hashed_super = pwd_context.hash("ctut@2026")
         hashed_admin = pwd_context.hash("123456")
-        # Tương đương INSERT OR IGNORE: chỉ thêm nếu tài khoản chưa tồn tại, không
-        # ghi đè mật khẩu đã đổi (nếu superadmin/admincds đã từng được đổi mật khẩu).
         if not db.query(AdminRole).filter_by(username="superadmin").first():
             db.add(AdminRole(username="superadmin", password=hashed_super, role="SUPER_ADMIN", is_active=1))
         if not db.query(AdminRole).filter_by(username="admincds").first():
@@ -165,6 +153,18 @@ app.mount(
     StaticFiles(directory=STATIC_DIR),
     name="static"
 )
+
+def backup_pdf_to_db(filename: str, file_bytes: bytes):
+    virtual_path = f"temp/{filename}"
+    try:
+        with get_session() as db:
+            record = db.query(FileStorage).filter_by(file_path=virtual_path).first()
+            if record:
+                record.file_data = file_bytes
+            else:
+                db.add(FileStorage(file_path=virtual_path, file_data=file_bytes))
+    except Exception as e:
+        print(f"[CẢNH BÁO] Không thể sao lưu file {filename} vào Database: {e}")
 
 def build_content_disposition(disposition: str, filename: str) -> str:
     ascii_fallback = filename.encode("ascii", errors="ignore").decode("ascii").strip() or "document.pdf"
@@ -655,26 +655,24 @@ async def sign_documents_in_batch(
     signed_paths = []
 
     def process_single_file(upload_file, raw_bytes):
-        input_path = os.path.join(
-            temp_dir,
-            f"in_{uuid.uuid4().hex}_{upload_file.filename}"
-        )
+        input_path = os.path.join(temp_dir, f"in_{uuid.uuid4().hex}_{upload_file.filename}")
         output_name = f"signed_{upload_file.filename}"
         output_path = os.path.join(temp_dir, output_name)
+        
         with open(input_path, "wb") as f:
             f.write(raw_bytes)
 
         PDFEngine.sign_pdf(
-            user_id,
-            password,
-            input_path,
-            output_path,
-            stamp_ratio_x=stamp_ratio_x,
-            stamp_ratio_y=stamp_ratio_y,
-            stamp_page_index=stamp_page_index,
-            stamp_width_pt=stamp_width_pt,
-            stamp_height_pt=stamp_height_pt
+            user_id, password, input_path, output_path,
+            stamp_ratio_x=stamp_ratio_x, stamp_ratio_y=stamp_ratio_y,
+            stamp_page_index=stamp_page_index, stamp_width_pt=stamp_width_pt, stamp_height_pt=stamp_height_pt
         )
+        
+        # [MỚI CHÈN THÊM] Đọc file đã ký và lưu vào PostgreSQL
+        with open(output_path, "rb") as f:
+            signed_bytes = f.read()
+        backup_pdf_to_db(output_name, signed_bytes)
+        
         return output_path
 
     try:
@@ -727,38 +725,70 @@ async def get_signing_history():
 @app.get("/api/v1/pdf/download/{filename}")
 async def download_file(filename: str):
     temp_dir = os.path.join(PROJECT_ROOT, "temp")
-    exact_path = os.path.join(temp_dir, filename)
-    if os.path.exists(exact_path):
-        return FileResponse(
-            exact_path, 
-            media_type="application/pdf",
-            headers={"Content-Disposition": build_content_disposition("inline", filename)}
-        )
-    verify_files = []
-    if os.path.exists(temp_dir):
-        for f in os.listdir(temp_dir):
-            if f.startswith("verify_") and f.endswith(f"_{filename}"):
-                full_path = os.path.join(temp_dir, f)
-                verify_files.append((full_path, os.path.getmtime(full_path)))
+    os.makedirs(temp_dir, exist_ok=True)
+    
+    # 1. Hàm nội bộ dùng để phục hồi file từ DB ra đĩa cứng
+    def recover_from_db(target_name: str) -> str:
+        virtual_path = f"temp/{target_name}"
+        with get_session() as db:
+            record = db.query(FileStorage).filter_by(file_path=virtual_path).first()
+            if record:
+                recovered_path = os.path.join(temp_dir, target_name)
+                with open(recovered_path, "wb") as f:
+                    f.write(record.file_data)
+                return recovered_path
+        return None
+
+    # 2. Định nghĩa danh sách các tên file có thể xảy ra
+    possible_names = [
+        filename,
+        f"signed_{filename}",
+        f"check_{filename}",
+        f"signed_batch_{filename}"
+    ]
+    
+    # Tìm kiếm các file verify có tiền tố ngẫu nhiên trên đĩa
+    verify_files = [f for f in os.listdir(temp_dir) if f.startswith("verify_") and f.endswith(f"_{filename}")]
     if verify_files:
-        verify_files.sort(key=lambda x: x[1], reverse=True)
-        latest_verify_path = verify_files[0][0]
-        return FileResponse(
-            latest_verify_path,
-            media_type="application/pdf",
-            headers={"Content-Disposition": build_content_disposition("inline", filename)}
-        )
-    fallback_names = [f"signed_{filename}", f"check_{filename}", f"signed_batch_{filename}"]
-    for name in fallback_names:
-        path = os.path.join(temp_dir, name)
-        if os.path.exists(path):
+        verify_files.sort(key=lambda x: os.path.getmtime(os.path.join(temp_dir, x)), reverse=True)
+        possible_names.insert(0, verify_files[0])
+
+    # 3. Quét qua các tên khả dĩ: tìm trên đĩa, nếu không có thì tìm trong DB
+    for name in possible_names:
+        exact_path = os.path.join(temp_dir, name)
+        
+        # Nếu có trên đĩa -> Trả về ngay
+        if os.path.exists(exact_path):
             return FileResponse(
-                path, 
+                exact_path, 
                 media_type="application/pdf",
                 headers={"Content-Disposition": build_content_disposition("inline", name)}
             )
             
-    raise HTTPException(status_code=404, detail="Tệp văn bản không tồn tại trên hệ thống lưu trữ tạm.")
+        # Nếu mất trên đĩa -> Thử phục hồi từ DB
+        recovered_path = recover_from_db(name)
+        if recovered_path:
+            return FileResponse(
+                recovered_path, 
+                media_type="application/pdf",
+                headers={"Content-Disposition": build_content_disposition("inline", name)}
+            )
+            
+    # Đặc biệt đối với file verify bị mất do restart (chưa biết mã UUID), quét qua DB bằng toán tử LIKE
+    with get_session() as db:
+        record = db.query(FileStorage).filter(FileStorage.file_path.like(f"temp/verify_%_{filename}")).first()
+        if record:
+            actual_name = record.file_path.split("/")[-1]
+            recovered_path = os.path.join(temp_dir, actual_name)
+            with open(recovered_path, "wb") as f:
+                f.write(record.file_data)
+            return FileResponse(
+                recovered_path, 
+                media_type="application/pdf",
+                headers={"Content-Disposition": build_content_disposition("inline", actual_name)}
+            )
+
+    raise HTTPException(status_code=404, detail="Tệp văn bản không tồn tại trên hệ thống lưu trữ tạm và cơ sở dữ liệu.")
 
 @app.post("/api/v1/pdf/download-batch-zip")
 async def download_batch_zip(filenames: List[str] = Form(...)):
@@ -807,10 +837,14 @@ async def verify_documents_batch(request: Request, files: List[UploadFile] = Fil
 
     # Định nghĩa hàm xử lý nội bộ cho từng file để chạy bất đồng bộ qua threadpool
     def process_verification(filename, raw_bytes):
-        file_path = os.path.join(temp_dir, f"verify_{uuid.uuid4().hex}_{filename}")
+        actual_filename = f"verify_{uuid.uuid4().hex}_{filename}"
+        file_path = os.path.join(temp_dir, actual_filename)
+
         with open(file_path, "wb") as f:
             f.write(raw_bytes)
-            
+
+        backup_pdf_to_db(actual_filename, raw_bytes)
+
         result_data = PDFEngine.verify_pdf(file_path)
         signer_str = result_data.get("signer", "-")
         
