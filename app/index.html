@@ -4,8 +4,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Cổng Chữ Ký Số Tập Trung - CTUT</title>
+    <title>Cổng Ký Số DXC</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="icon" type="image/png" href="/static/images/mini.png">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     <link rel="stylesheet" href="/static/css/style.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -18,7 +19,7 @@
             <div class="d-flex align-items-center">
                 <i class="fa-solid fa-shield-halved text-warning fs-3 me-3"></i>
                 <div>
-                    <a class="navbar-brand fw-bold m-0 p-0 fs-4" href="#">CTUT REMOTE SIGNING PORTAL</a>
+                    <a class="navbar-brand fw-bold m-0 p-0 fs-4" href="#">DXC REMOTE SIGNING PORTAL</a>
                     <div class="text-white-50 small">Hạ tầng chứng thực và Ký số tập trung nội bộ</div>
                 </div>
             </div>
@@ -101,7 +102,7 @@
                                 onsubmit="event.preventDefault(); executeVerifyOTP();">
                                 <div class="d-flex align-items-center wizard-step-header">
                                     <span class="badge bg-warning text-dark rounded-circle me-3 px-3 py-2 fs-6">2</span>
-                                    <h4 class="m-0 fw-bold text-warning text-dark">Bước 2: Xác Thực Mã An Toàn OTP</h4>
+                                    <h4 class="m-0 fw-bold text-warning text-dark">Bước 2: Xác Thực Mã OTP</h4>
                                 </div>
                                 <div class="alert alert-info border-0 rounded-3 mb-4">Hạ tầng CA đã gửi mã OTP về Email
                                     của tài khoản: <span id="txt_active_user" class="fw-bold text-danger"></span></div>
@@ -525,7 +526,7 @@
                                                 <div class="mb-3"><label
                                                         class="form-label small fw-bold text-secondary">User
                                                         ID</label><input type="text" id="reg_uid" class="form-control"
-                                                        placeholder="levikhang"></div>
+                                                        placeholder="username"></div>
                                                 <div class="mb-3"><label
                                                         class="form-label small fw-bold text-secondary">Mật khẩu khóa
                                                         Private</label>
@@ -601,7 +602,7 @@
                                             <div class="mb-3"><label
                                                     class="form-label small fw-bold text-secondary">Định danh tài khoản
                                                     quản trị mới</label><input type="text" id="priv_user"
-                                                    class="form-control" placeholder="Ví dụ: levikhang_admin"></div>
+                                                    class="form-control" placeholder="Ví dụ: username"></div>
                                             <div class="mb-3"><label class="form-label small fw-bold text-secondary">Mật
                                                     khẩu đăng nhập cổng</label>
                                                 <div class="input-group"><input type="password" id="priv_pass"
@@ -614,7 +615,7 @@
                                                     class="form-label small fw-bold text-secondary">Chọn vai trò bảo
                                                     mật</label><select id="priv_role" class="form-select">
                                                     <option value="ADMIN">Cán bộ hỗ trợ (RA Officer/Admin)</option>
-                                                    <option value="SUPER_ADMIN">Quản trị viên tối cao (Super Admin)
+                                                    <option value="SUPER_ADMIN">Quản trị viên (Super Admin)
                                                     </option>
                                                 </select></div>
                                             <button type="submit"

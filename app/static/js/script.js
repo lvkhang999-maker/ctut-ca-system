@@ -1419,7 +1419,7 @@ async function executeVerify() {
     const originalText = btn.innerHTML;
 
     btn.disabled = true;
-    btn.innerHTML = `<span class="spinner-border spinner-border-sm me-2"></span>Đang phân tích hệ thống mật mã hàng loạt...`;
+    btn.innerHTML = `<span class="spinner-border spinner-border-sm me-2"></span>Đang phân tích hệ thống mật mã ...`;
 
     const div = document.getElementById("verify_result");
     div.innerHTML = "";
@@ -1440,7 +1440,7 @@ async function executeVerify() {
             div.innerHTML = `
                 <div class="card border-primary rounded-3 shadow-sm animate__animated animate__fadeIn">
                     <div class="card-header bg-primary text-white fw-bold d-flex align-items-center justify-content-between flex-wrap gap-2">
-                        <span><i class="fa-solid fa-shield-halved me-2"></i>BẢNG KẾT QUẢ THẨM ĐỊNH ĐỒNG LOẠT</span>
+                        <span><i class="fa-solid fa-shield-halved me-2"></i>BẢNG KẾT QUẢ THẨM ĐỊNH </span>
                         <span class="badge bg-light text-primary">Tổng số: ${batchVerifyRawDataset.length} File</span>
                     </div>
                     <div class="card-body bg-light border-bottom p-3">
