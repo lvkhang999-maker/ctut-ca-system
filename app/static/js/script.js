@@ -788,6 +788,7 @@ async function executeRequestOTP() {
                 const isWarning = data.message.includes("⚠️");
                 showResult("sign_result", isWarning ? "warning" : "success", data.message);
             }
+            startOtpCountdown();
         } else { showResult("sign_result", "danger", `Thất bại: ${data.detail}`); }
     } catch (e) { showResult("sign_result", "danger", "Lỗi kết nối server API Gateway!"); }
     finally { btn.disabled = false; btn.innerHTML = `<i class="fa-solid fa-paper-plane me-2"></i>Xác thực danh tính & Gửi mã OTP`; }
@@ -797,6 +798,88 @@ function backToStep1() {
     document.getElementById("panel_step_2").classList.add("d-none");
     document.getElementById("panel_step_1").classList.remove("d-none");
     document.getElementById("sign_result").innerHTML = "";
+    stopOtpCountdown();
+}
+
+// =========================================================================
+// ĐẾM NGƯỢC HIỆU LỰC MÃ OTP (2 PHÚT) + CHO PHÉP GỬI LẠI KHI HẾT HẠN
+// =========================================================================
+// Khớp với thời gian hiệu lực OTP thật ở backend (auth_engine.py generate_otp
+// mặc định expiry_seconds=120). Hết giờ mà chưa xác thực xong thì hiện nút
+// "Gửi lại mã OTP" để người dùng xin mã mới mà không phải quay lại Bước 1.
+let _otpCountdownInterval = null;
+
+function startOtpCountdown(seconds = 120) {
+    stopOtpCountdown();
+    const countdownText = document.getElementById("otp_countdown_text");
+    const resendBtn = document.getElementById("btn_resend_otp");
+    resendBtn.classList.add("d-none");
+    countdownText.classList.remove("d-none");
+
+    let remaining = seconds;
+    const render = () => {
+        const mm = String(Math.floor(remaining / 60)).padStart(2, "0");
+        const ss = String(remaining % 60).padStart(2, "0");
+        countdownText.innerText = `${mm}:${ss}`;
+    };
+    render();
+
+    _otpCountdownInterval = setInterval(() => {
+        remaining -= 1;
+        if (remaining <= 0) {
+            stopOtpCountdown();
+            countdownText.innerText = "Đã hết hạn";
+            resendBtn.classList.remove("d-none");
+            return;
+        }
+        render();
+    }, 1000);
+}
+
+function stopOtpCountdown() {
+    if (_otpCountdownInterval) {
+        clearInterval(_otpCountdownInterval);
+        _otpCountdownInterval = null;
+    }
+}
+
+async function executeResendOTP() {
+    const uid = document.getElementById("sign_uid").value;
+    const pwd = document.getElementById("sign_pwd").value;
+    if (!uid || !pwd) {
+        showResult("sign_result", "danger", "Thiếu thông tin tài khoản để gửi lại OTP, vui lòng quay lại Bước 1!");
+        return;
+    }
+
+    const resendBtn = document.getElementById("btn_resend_otp");
+    const originalHtml = resendBtn.innerHTML;
+    resendBtn.disabled = true;
+    resendBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin me-1"></i>Đang gửi lại...`;
+
+    const formData = new FormData();
+    formData.append("user_id", uid);
+    formData.append("password", pwd);
+
+    try {
+        const res = await fetch(`${API_BASE}/pdf/request-signing-otp`, { method: "POST", body: formData });
+        const data = await res.json();
+        if (res.ok) {
+            document.getElementById("sign_result").innerHTML = "";
+            if (data.message) {
+                const isWarning = data.message.includes("⚠️");
+                showResult("sign_result", isWarning ? "warning" : "success", data.message);
+            }
+            resendBtn.classList.add("d-none");
+            startOtpCountdown();
+        } else {
+            showResult("sign_result", "danger", `Gửi lại OTP thất bại: ${data.detail}`);
+        }
+    } catch (e) {
+        showResult("sign_result", "danger", "Lỗi kết nối server khi gửi lại OTP!");
+    } finally {
+        resendBtn.disabled = false;
+        resendBtn.innerHTML = originalHtml;
+    }
 }
 
 // =========================================================================
@@ -873,6 +956,7 @@ async function executeVerifyOTP() {
             document.getElementById("panel_step_3").classList.remove("d-none");
             updateHeaderSignaturePreview();
             document.getElementById("sign_result").innerHTML = "";
+            stopOtpCountdown();
 
 
             // LƯU LẠI UID VÀ MẬT KHẨU VÀO SESSION STORAGE
@@ -998,8 +1082,8 @@ async function renderStampPreviewPage(pageIndex) {
     picker.dataset.canvasPxWidth = viewport.width;
     picker.dataset.canvasPxHeight = viewport.height;
 
-    document.getElementById("stamp_page_indicator").innerText =
-        `Trang ${pageIndex + 1} / ${currentStampPdfDoc.numPages}`;
+    document.getElementById("stamp_page_number_input").value = pageIndex + 1;
+    document.getElementById("stamp_page_total").innerText = currentStampPdfDoc.numPages;
 
     // Nếu chưa từng chọn vị trí (file mới hoặc vừa đổi trang lần đầu), đặt mặc
     // định đúng bằng vị trí mặc định thật bên backend (góc trên-trái, cách mép
@@ -1016,6 +1100,32 @@ function changeStampPreviewPage(delta) {
     const newIndex = currentStampPageIndex + delta;
     if (newIndex < 0 || newIndex >= currentStampPdfDoc.numPages) return;
     currentStampPageIndex = newIndex;
+    renderStampPreviewPage(currentStampPageIndex);
+    updateStampPreviewInfoText();
+}
+
+// Nhảy thẳng tới 1 trang bất kỳ (0-based index) - dùng cho văn bản nhiều trang
+// (vd 1000 trang) để không phải bấm "trang kế" hàng trăm/nghìn lần mới tới nơi
+// cần đóng dấu. target = -1 nghĩa là "trang cuối cùng".
+function jumpToStampPage(target) {
+    if (!currentStampPdfDoc) return;
+    const lastIndex = currentStampPdfDoc.numPages - 1;
+    const newIndex = target === -1 ? lastIndex : Math.max(0, Math.min(target, lastIndex));
+    currentStampPageIndex = newIndex;
+    renderStampPreviewPage(currentStampPageIndex);
+    updateStampPreviewInfoText();
+}
+
+// Nhảy tới trang theo số người dùng tự gõ vào ô nhập (hiển thị 1-based, lưu
+// nội bộ 0-based), tự kẹp trong khoảng hợp lệ [1, tổng số trang].
+function jumpToStampPageFromInput() {
+    if (!currentStampPdfDoc) return;
+    const input = document.getElementById("stamp_page_number_input");
+    let pageNum = parseInt(input.value, 10);
+    if (isNaN(pageNum)) pageNum = 1;
+    pageNum = Math.max(1, Math.min(pageNum, currentStampPdfDoc.numPages));
+    input.value = pageNum;
+    currentStampPageIndex = pageNum - 1;
     renderStampPreviewPage(currentStampPageIndex);
     updateStampPreviewInfoText();
 }
@@ -1396,6 +1506,7 @@ async function logoutUser() {
         document.getElementById("panel_step_3").classList.add("d-none");
         document.getElementById("panel_step_1").classList.remove("d-none");
         document.getElementById("resume_session_banner").classList.add("d-none");
+        stopOtpCountdown();
 
         // XÓA SẠCH DỮ LIỆU TẠM THỜI
         sessionStorage.removeItem("ctut_active_uid");
@@ -1419,7 +1530,7 @@ async function executeVerify() {
     const originalText = btn.innerHTML;
 
     btn.disabled = true;
-    btn.innerHTML = `<span class="spinner-border spinner-border-sm me-2"></span>Đang phân tích hệ thống mật mã ...`;
+    btn.innerHTML = `<span class="spinner-border spinner-border-sm me-2"></span>Đang phân tích hệ thống mật mã hàng loạt...`;
 
     const div = document.getElementById("verify_result");
     div.innerHTML = "";
@@ -1440,7 +1551,7 @@ async function executeVerify() {
             div.innerHTML = `
                 <div class="card border-primary rounded-3 shadow-sm animate__animated animate__fadeIn">
                     <div class="card-header bg-primary text-white fw-bold d-flex align-items-center justify-content-between flex-wrap gap-2">
-                        <span><i class="fa-solid fa-shield-halved me-2"></i>BẢNG KẾT QUẢ THẨM ĐỊNH </span>
+                        <span><i class="fa-solid fa-shield-halved me-2"></i>BẢNG KẾT QUẢ THẨM ĐỊNH ĐỒNG LOẠT</span>
                         <span class="badge bg-light text-primary">Tổng số: ${batchVerifyRawDataset.length} File</span>
                     </div>
                     <div class="card-body bg-light border-bottom p-3">
