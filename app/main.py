@@ -15,7 +15,7 @@ from app.core.db import get_session
 # sqlite3 vào 1 file cục bộ trên ổ đĩa Render -> MẤT SẠCH mỗi lần redeploy vì ổ
 # đĩa Render không bền (ephemeral). Giờ chuyển hẳn sang SQLAlchemy + get_session()
 # giống FileStorage, để dữ liệu thực sự nằm trong PostgreSQL bền vững.
-from app.core.db import Base, FileStorage, AdminRole, VerificationLog, SigningLog, TeacherStatus
+from app.core.db import Base, FileStorage, AdminRole, VerificationLog, SigningLog, TeacherStatus, ActiveOtpSession
 
 VN_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
 
@@ -62,7 +62,36 @@ DB_DIR = os.path.join(PROJECT_ROOT, "storage", "db")
 USER_STORAGE = os.path.join(PROJECT_ROOT, "storage", "users")
 CA_DIR = os.path.join(PROJECT_ROOT, "storage", "ca")
 
-_user_active_sessions = {} 
+def _set_otp_session_active(user_id: str):
+    """Đánh dấu phiên OTP của tài khoản là ĐÃ XÁC THỰC (Bước 2 thành công)."""
+    with get_session() as db:
+        record = db.query(ActiveOtpSession).filter_by(user_id=user_id).first()
+        ts = get_vn_now_str()
+        if record:
+            record.verified_at = ts
+        else:
+            db.add(ActiveOtpSession(user_id=user_id, verified_at=ts))
+
+
+def _is_otp_session_active(user_id: str) -> bool:
+    """Kiểm tra tài khoản đã xác thực OTP và còn hiệu lực để ký hay chưa."""
+    try:
+        with get_session() as db:
+            return db.query(ActiveOtpSession).filter_by(user_id=user_id).first() is not None
+    except Exception:
+        return False
+
+
+def _clear_otp_session(user_id: str):
+    """Xóa phiên OTP (đăng xuất)."""
+    try:
+        with get_session() as db:
+            record = db.query(ActiveOtpSession).filter_by(user_id=user_id).first()
+            if record:
+                db.delete(record)
+    except Exception:
+        pass
+
 
 _sandbox_otps = {}
 _orig_generate_otp = AuthEngine.generate_otp
@@ -610,7 +639,7 @@ async def get_user_session_status(user_id: str):
     Dùng để khôi phục giao diện về đúng Bước 3 sau khi người dùng reload trang
     (vì trạng thái đăng nhập trước đây chỉ tồn tại trong JS của tab, mất sạch
     khi F5) mà KHÔNG cần yêu cầu OTP mới nếu phiên cũ vẫn còn hiệu lực."""
-    return {"active": _user_active_sessions.get(user_id) == True}
+    return {"active": _is_otp_session_active(user_id)}
 
 @app.get("/api/v1/user/signature-preview/{user_id}")
 async def get_user_signature_preview(user_id: str):
@@ -624,8 +653,7 @@ async def get_user_signature_preview(user_id: str):
 
 @app.post("/api/v1/user/logout")
 async def user_logout(user_id: str = Form(...)):
-    if user_id in _user_active_sessions:
-        _user_active_sessions[user_id] = False
+    _clear_otp_session(user_id)
     return {"status": "success", "message": "Đã đăng xuất"}
 
 @app.post("/api/v1/pdf/request-signing-otp")
@@ -681,7 +709,7 @@ async def verify_otp_only(user_id: str = Form(...), otp: str = Form(...)):
         raise HTTPException(status_code=400, detail="Mã OTP số không chính xác hoặc đã quá chu kỳ hiệu lực.")
     
     # KÍCH HOẠT TOKEN PHIÊN: Đánh dấu Giảng viên đã vượt qua lớp phòng thủ 2FA thành công
-    _user_active_sessions[user_id] = True
+    _set_otp_session_active(user_id)
     return {"status": "success", "message": "Xác thực mã OTP thành công. Hệ thống đã mở khóa phân vùng tải tệp ở Bước 3."}
 
 # =========================================================================
@@ -700,7 +728,7 @@ async def sign_documents_in_batch(
     stamp_height_pt: float = Form(None)
 ):
     # Kiểm tra OTP Session
-    if _user_active_sessions.get(user_id) != True:
+    if not _is_otp_session_active(user_id):
         raise HTTPException(
             status_code=403,
             detail="Yêu cầu từ chối. Phiên làm việc chưa hoàn tất xác thực OTP ở Bước 2."

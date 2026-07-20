@@ -98,6 +98,19 @@ def get_session():
     finally:
         session.close()
 
+class ActiveOtpSession(Base):
+    """Đánh dấu tài khoản giảng viên đã vượt qua xác thực OTP (Bước 2), được phép
+    ký ở Bước 3. Trước đây lưu bằng 1 dict Python thuần trong RAM
+    (_user_active_sessions) - bị XÓA SẠCH mỗi khi Render restart/sleep-wake gói
+    Free (thường sau ~15 phút không có request), khiến người dùng đang ở Bước 3
+    (đã qua OTP) đột nhiên bị từ chối ký với lỗi 'chưa xác thực OTP' dù họ chưa
+    hề đăng xuất. Chuyển sang PostgreSQL để phiên sống sót qua mọi lần restart."""
+    __tablename__ = "active_otp_sessions"
+
+    user_id = Column(String, primary_key=True)
+    verified_at = Column(String)
+
+
 class TeacherStatus(Base):
     """Trạng thái kích hoạt/vô hiệu hóa của tài khoản Giảng viên (tách riêng khỏi
     AdminRole vì giảng viên không có bản ghi DB nào từ trước - danh sách giảng
