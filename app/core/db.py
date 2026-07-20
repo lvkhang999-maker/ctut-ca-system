@@ -98,6 +98,16 @@ def get_session():
     finally:
         session.close()
 
+class TeacherStatus(Base):
+    """Trạng thái kích hoạt/vô hiệu hóa của tài khoản Giảng viên (tách riêng khỏi
+    AdminRole vì giảng viên không có bản ghi DB nào từ trước - danh sách giảng
+    viên trước giờ chỉ được liệt kê bằng cách quét file chứng thư trên đĩa)."""
+    __tablename__ = "teacher_status"
+
+    user_id = Column(String, primary_key=True)
+    is_active = Column(Integer, default=1)
+
+
 class FileStorage(Base):
     __tablename__ = "file_storage"
     # Lưu đường dẫn tương đối, ví dụ: storage/users/admin_cert.pem

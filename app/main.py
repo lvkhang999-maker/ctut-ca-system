@@ -15,7 +15,7 @@ from app.core.db import get_session
 # sqlite3 vào 1 file cục bộ trên ổ đĩa Render -> MẤT SẠCH mỗi lần redeploy vì ổ
 # đĩa Render không bền (ephemeral). Giờ chuyển hẳn sang SQLAlchemy + get_session()
 # giống FileStorage, để dữ liệu thực sự nằm trong PostgreSQL bền vững.
-from app.core.db import Base, FileStorage, AdminRole, VerificationLog, SigningLog
+from app.core.db import Base, FileStorage, AdminRole, VerificationLog, SigningLog, TeacherStatus
 
 VN_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
 
@@ -337,7 +337,17 @@ async def admin_list_users(
     users_list = []
     if not os.path.exists(USER_STORAGE):
         return users_list
-        
+
+    # Lấy trước toàn bộ trạng thái kích hoạt/vô hiệu giảng viên từ PostgreSQL,
+    # mặc định = đang hoạt động (1) nếu tài khoản chưa từng có bản ghi trạng thái.
+    active_map = {}
+    try:
+        with get_session() as db:
+            for row in db.query(TeacherStatus).all():
+                active_map[row.user_id] = row.is_active
+    except Exception:
+        pass
+
     for file in os.listdir(USER_STORAGE):
         if file.endswith("_cert.pem"):
             user_id = file.replace("_cert.pem", "")
@@ -355,10 +365,49 @@ async def admin_list_users(
                         email_str = emails[0]
                 except Exception:
                     pass
-                users_list.append({"user_id": user_id, "common_name": cn, "email": email_str})
+                is_active = active_map.get(user_id, 1)
+                users_list.append({
+                    "user_id": user_id, "common_name": cn, "email": email_str, "is_active": is_active
+                })
             except Exception:
                 pass
     return users_list
+
+@app.post("/api/v1/admin/toggle-user-active")
+async def admin_toggle_user_active(
+    admin_user: str = Form(...),
+    admin_pass: str = Form(...),
+    target_user: str = Form(...)
+):
+    """Kích hoạt/vô hiệu hóa tài khoản GIẢNG VIÊN. Vô hiệu hóa không xóa chứng
+    thư/khóa của họ - chỉ chặn không cho đăng nhập xin OTP để ký (xem thêm chỗ
+    kiểm tra trong request_signing_otp bên dưới)."""
+    verify_admin_privilege(admin_user, admin_pass)
+
+    cert_path = os.path.join(USER_STORAGE, f"{target_user}_cert.pem")
+    if not os.path.exists(cert_path):
+        raise HTTPException(status_code=404, detail="Không tìm thấy tài khoản giảng viên mục tiêu.")
+
+    with get_session() as db:
+        record = db.query(TeacherStatus).filter_by(user_id=target_user).first()
+        if record:
+            new_status = 0 if record.is_active == 1 else 1
+            record.is_active = new_status
+        else:
+            # Chưa từng có bản ghi -> đang mặc định hoạt động (1) -> vô hiệu hóa lần đầu (0)
+            new_status = 0
+            db.add(TeacherStatus(user_id=target_user, is_active=new_status))
+
+        status_txt = "VÔ HIỆU HÓA" if new_status == 0 else "KÍCH HOẠT LẠI"
+        db.add(VerificationLog(
+            timestamp=get_vn_now_str(),
+            filename="Hạ tầng hệ thống",
+            status=f"TÀI KHOẢN GV [{status_txt}]",
+            signer=target_user,
+            client_ip="127.0.0.1"
+        ))
+
+    return {"status": "success", "message": f"Đã thực hiện {status_txt} thành công tài khoản giảng viên '{target_user}'."}
 
 @app.get("/api/v1/admin/roles-list")
 async def admin_list_roles(
@@ -584,6 +633,23 @@ async def request_signing_otp(user_id: str = Form(...), password: str = Form(...
     key_path = os.path.join(PROJECT_ROOT, "storage", "users", f"{user_id}_private.pem")
     if not os.path.exists(key_path):
         raise HTTPException(status_code=404, detail="Tài khoản người dùng không tồn tại.")
+
+    # QUAN TRỌNG: chặn đăng nhập nếu tài khoản giảng viên đã bị Admin vô hiệu hóa.
+    # Kiểm tra TRƯỚC khi thử giải mã khóa Private để không lộ thông tin (đúng mật
+    # khẩu hay không) cho tài khoản đã bị khóa.
+    try:
+        with get_session() as db:
+            status_row = db.query(TeacherStatus).filter_by(user_id=user_id).first()
+            if status_row and status_row.is_active == 0:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Tài khoản của bạn đã bị quản trị viên vô hiệu hóa. Vui lòng liên hệ quản trị viên để được hỗ trợ."
+                )
+    except HTTPException:
+        raise
+    except Exception:
+        pass  # Lỗi truy vấn DB không nên chặn đăng nhập hợp lệ
+
     try:
         with open(key_path, "rb") as f:
             serialization.load_pem_private_key(f.read(), password=password.encode())

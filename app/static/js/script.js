@@ -83,6 +83,64 @@ function showResult(divId, type, message) {
         </div>`;
 }
 
+// =========================================================================
+// TOAST + MODAL XÁC NHẬN DÙNG CHUNG (thay cho alert()/confirm() mặc định của
+// trình duyệt - vừa xấu, vừa chặn luồng thao tác, vừa không đồng bộ giao diện
+// với phần còn lại của hệ thống).
+// =========================================================================
+function showToast(type, message) {
+    const container = document.getElementById("app_toast_container");
+    if (!container) { console.log(`[${type}] ${message}`); return; }
+
+    const styles = {
+        success: { bg: "bg-success", icon: "fa-circle-check" },
+        danger: { bg: "bg-danger", icon: "fa-circle-xmark" },
+        warning: { bg: "bg-warning text-dark", icon: "fa-triangle-exclamation" },
+        info: { bg: "bg-info text-dark", icon: "fa-circle-info" },
+    };
+    const s = styles[type] || styles.info;
+
+    const el = document.createElement("div");
+    el.className = `app-toast-notify ${s.bg} shadow rounded-3 px-3 py-2 fw-semibold d-flex align-items-start gap-2`;
+    el.style.cssText = "min-width:260px;";
+    el.innerHTML = `
+        <i class="fa-solid ${s.icon} mt-1"></i>
+        <span class="flex-grow-1" style="font-size:14px;">${message}</span>
+        <button type="button" class="btn-close btn-close-white ms-1" style="font-size:11px;" onclick="this.parentElement.remove()"></button>`;
+    container.appendChild(el);
+
+    setTimeout(() => {
+        el.style.opacity = "0";
+        el.style.transform = "translateX(30px)";
+        setTimeout(() => el.remove(), 300);
+    }, 4000);
+}
+
+function showAppConfirm(title, body, okText = "Xác nhận", okClass = "btn-danger") {
+    return new Promise((resolve) => {
+        document.getElementById("appConfirmModalTitle").innerText = title;
+        document.getElementById("appConfirmModalBody").innerHTML = body;
+        const okBtn = document.getElementById("appConfirmModalOkBtn");
+        okBtn.className = `btn fw-bold ${okClass}`;
+        okBtn.innerText = okText;
+
+        const modalEl = document.getElementById("appConfirmModal");
+        const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+        let resolved = false;
+
+        const onOk = () => { resolved = true; modal.hide(); resolve(true); };
+        const onHidden = () => {
+            okBtn.removeEventListener("click", onOk);
+            modalEl.removeEventListener("hidden.bs.modal", onHidden);
+            if (!resolved) resolve(false);
+        };
+
+        okBtn.addEventListener("click", onOk);
+        modalEl.addEventListener("hidden.bs.modal", onHidden);
+        modal.show();
+    });
+}
+
 document.addEventListener("DOMContentLoaded", () => {
     const tabButtons = document.querySelectorAll('#pkiTabs button');
     tabButtons.forEach(button => {
@@ -444,19 +502,53 @@ async function loadAdminUsers() {
     const admin_pass = document.getElementById("admin_password").value;
     try {
         const res = await fetch(`${API_BASE}/admin/users?admin_user=${admin_user}&admin_pass=${admin_pass}`);
-        if (!res.ok) { tbody.innerHTML = `<tr><td colspan="4" class="text-center text-danger fw-bold py-3">Lỗi bóc tách chứng thư số từ Server.</td></tr>`; return; }
+        if (!res.ok) { tbody.innerHTML = `<tr><td colspan="5" class="text-center text-danger fw-bold py-3">Lỗi bóc tách chứng thư số từ Server.</td></tr>`; return; }
         const users = await res.json();
-        if (!Array.isArray(users) || users.length === 0) { tbody.innerHTML = `<tr><td colspan="4" class="text-center text-muted py-3">Chưa khởi tạo tài khoản giảng viên nào.</td></tr>`; return; }
-        tbody.innerHTML = users.map(user => `
+        if (!Array.isArray(users) || users.length === 0) { tbody.innerHTML = `<tr><td colspan="5" class="text-center text-muted py-3">Chưa khởi tạo tài khoản giảng viên nào.</td></tr>`; return; }
+        tbody.innerHTML = users.map(user => {
+            const isActive = user.is_active === 1 || user.is_active === undefined;
+            const badgeHtml = isActive
+                ? `<span class="badge bg-success">Đang hoạt động</span>`
+                : `<span class="badge bg-secondary">Đã vô hiệu hóa</span>`;
+            const toggleBtnClass = isActive ? "btn-outline-danger" : "btn-success";
+            const toggleBtnIcon = isActive ? "fa-user-slash" : "fa-user-check";
+            const toggleBtnText = isActive ? "Vô hiệu" : "Kích hoạt";
+            return `
             <tr>
                 <td class="fw-bold text-secondary">${user.user_id}</td>
                 <td class="text-dark fw-bold">${user.common_name}</td>
                 <td class="text-monospace text-muted">${user.email}</td>
-                <td class="text-center">
+                <td class="text-center">${badgeHtml}</td>
+                <td class="text-center d-flex gap-1 justify-content-center">
                     <button onclick="openEditUser('${user.user_id}', '${user.common_name}', '${user.email}')" class="btn btn-sm btn-outline-primary fw-bold px-2 py-1"><i class="fa-solid fa-user-pen me-1"></i>Sửa</button>
+                    <button onclick="executeToggleUserActive('${user.user_id}')" class="btn btn-sm ${toggleBtnClass} fw-bold px-2 py-1"><i class="fa-solid ${toggleBtnIcon} me-1"></i>${toggleBtnText}</button>
                 </td>
-            </tr>`).join("");
-    } catch (e) { tbody.innerHTML = `<tr><td colspan="4" class="text-center text-danger py-3">Lỗi kết nối hạ tầng mạng.</td></tr>`; }
+            </tr>`;
+        }).join("");
+    } catch (e) { tbody.innerHTML = `<tr><td colspan="5" class="text-center text-danger py-3">Lỗi kết nối hạ tầng mạng.</td></tr>`; }
+}
+
+async function executeToggleUserActive(targetUid) {
+    const admin_user = document.getElementById("admin_username").value;
+    const admin_pass = document.getElementById("admin_password").value;
+
+    const confirmed = await showAppConfirm(
+        "Xác nhận thay đổi trạng thái",
+        `Bạn có chắc chắn muốn thay đổi trạng thái hoạt động của tài khoản giảng viên <b>'${targetUid}'</b>? Tài khoản bị vô hiệu hóa sẽ không thể đăng nhập để ký số cho đến khi được kích hoạt lại.`
+    );
+    if (!confirmed) return;
+
+    const formData = new FormData();
+    formData.append("target_user", targetUid);
+    formData.append("admin_user", admin_user);
+    formData.append("admin_pass", admin_pass);
+
+    try {
+        const res = await fetch(`${API_BASE}/admin/toggle-user-active`, { method: "POST", body: formData });
+        const data = await res.json();
+        if (res.ok) { showToast("success", data.message); loadAdminUsers(); }
+        else { showToast("danger", `Từ chối lệnh: ${data.detail}`); }
+    } catch (e) { showToast("danger", "Lỗi nghẽn đường truyền bảo mật."); }
 }
 
 async function loadAdminRolesList() {
@@ -590,6 +682,11 @@ async function executeAssignPrivilege() {
     formData.append("admin_user", document.getElementById("admin_username").value);
     formData.append("admin_pass", document.getElementById("admin_password").value);
 
+    const btn = document.getElementById("btn_assign_privilege");
+    const originalHtml = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = `<span class="spinner-border spinner-border-sm me-1"></span>Đang cấp quyền...`;
+
     try {
         const res = await fetch(`${API_BASE}/admin/assign-role`, { method: "POST", body: formData });
         const data = await res.json();
@@ -600,6 +697,7 @@ async function executeAssignPrivilege() {
             if (activeAdminSubTable === "AUDIT") loadAdminAuditHistoryList();
         } else { showResult("priv_result", "danger", `Lỗi: ${data.detail}`); }
     } catch (e) { showResult("priv_result", "danger", "Lỗi kết nối mạng!"); }
+    finally { btn.disabled = false; btn.innerHTML = originalHtml; }
 }
 
 async function unlockAdminPanel() {
@@ -607,6 +705,11 @@ async function unlockAdminPanel() {
     const pass = document.getElementById("admin_password").value;
     const errDiv = document.getElementById("admin_auth_result");
     if (!user || !pass) { errDiv.innerHTML = `<div class="alert alert-danger fw-bold rounded-3 small m-0">Vui lòng điền thông tin đăng nhập!</div>`; return; }
+
+    const btn = document.getElementById("btn_admin_login");
+    const originalHtml = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = `<span class="spinner-border spinner-border-sm me-1"></span>Đang xác thực...`;
 
     try {
         const res = await fetch(`${API_BASE}/admin/users?admin_user=${user}&admin_pass=${pass}`);
@@ -644,6 +747,7 @@ async function unlockAdminPanel() {
             errDiv.innerHTML = `<div class="alert alert-danger fw-bold rounded-3 small m-0"><i class="fa-solid fa-circle-xmark me-2"></i>${errData.detail || 'Sai thông tin quản trị.'}</div>`;
         }
     } catch (e) { errDiv.innerHTML = `<div class="alert alert-danger fw-bold rounded-3 small m-0">Lỗi kết nối hạ tầng API.</div>`; }
+    finally { btn.disabled = false; btn.innerHTML = originalHtml; }
 }
 
 async function executeToggleAdminActive(targetUid) {
@@ -651,10 +755,14 @@ async function executeToggleAdminActive(targetUid) {
     const admin_pass = document.getElementById("admin_password").value;
 
     if (admin_user === targetUid) {
-        alert("Hệ thống bảo mật từ chối lệnh tự vô hiệu hóa tài khoản chính mình!");
+        showToast("danger", "Hệ thống bảo mật từ chối lệnh tự vô hiệu hóa tài khoản chính mình!");
         return;
     }
-    if (!confirm(`Bạn có chắc chắn muốn thay đổi trạng thái hoạt động của tài khoản quản trị '${targetUid}'?`)) return;
+    const confirmed = await showAppConfirm(
+        "Xác nhận thay đổi trạng thái",
+        `Bạn có chắc chắn muốn thay đổi trạng thái hoạt động của tài khoản quản trị <b>'${targetUid}'</b>?`
+    );
+    if (!confirmed) return;
 
     const formData = new FormData();
     formData.append("target_user", targetUid);
@@ -664,9 +772,9 @@ async function executeToggleAdminActive(targetUid) {
     try {
         const res = await fetch(`${API_BASE}/admin/toggle-active`, { method: "POST", body: formData });
         const data = await res.json();
-        if (res.ok) { alert(data.message); loadAdminRolesList(); }
-        else { alert(`Từ chối lệnh: ${data.detail}`); }
-    } catch (e) { alert("Lỗi nghẽn đường truyền bảo mật."); }
+        if (res.ok) { showToast("success", data.message); loadAdminRolesList(); }
+        else { showToast("danger", `Từ chối lệnh: ${data.detail}`); }
+    } catch (e) { showToast("danger", "Lỗi nghẽn đường truyền bảo mật."); }
 }
 
 async function executeRegister() {
@@ -690,6 +798,11 @@ async function executeRegister() {
     formData.append("admin_user", adminUser);
     formData.append("admin_pass", adminPass);
 
+    const btn = document.getElementById("btn_register");
+    const originalHtml = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = `<span class="spinner-border spinner-border-sm me-1"></span>Đang phát hành...`;
+
     try {
         const res = await fetch(`${API_BASE}/user/register`, { method: "POST", body: formData });
         const data = await res.json();
@@ -703,6 +816,7 @@ async function executeRegister() {
         }
         else { showResult("reg_result", "danger", `Lỗi: ${data.detail}`); }
     } catch (e) { showResult("reg_result", "danger", "Lỗi mạng kết nối API Gateway!"); }
+    finally { btn.disabled = false; btn.innerHTML = originalHtml; }
 }
 
 function resetAdminView() {
@@ -1290,6 +1404,7 @@ async function executeUploadSignature() {
     const current_pwd = document.getElementById("sign_pwd").value;
     const fileInput = document.getElementById("user_self_signature_file");
     const resDiv = document.getElementById("user_self_signature_result");
+    const btn = document.getElementById("btn_upload_signature");
 
     if (!fileInput.files || fileInput.files.length === 0) {
         resDiv.innerHTML = `<span class="text-danger fw-bold">❌ Vui lòng chọn 1 tệp ảnh chữ ký!</span>`;
@@ -1300,6 +1415,11 @@ async function executeUploadSignature() {
     formData.append("user_id", uid);
     formData.append("current_password", current_pwd);
     formData.append("signature_file", fileInput.files[0]);
+
+    const originalHtml = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = `<span class="spinner-border spinner-border-sm me-1"></span>Đang tải lên...`;
+    resDiv.innerHTML = "";
 
     try {
         const res = await fetch(`${API_BASE}/user/upload-signature`, { method: "POST", body: formData });
@@ -1314,6 +1434,9 @@ async function executeUploadSignature() {
         }
     } catch (e) {
         resDiv.innerHTML = `<span class="text-danger fw-bold">❌ Lỗi nghẽn đường truyền kết nối API.</span>`;
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalHtml;
     }
 }
 
@@ -1450,7 +1573,7 @@ function toggleSelectAllBatch(masterObj) {
 async function downloadSelectedBatchFiles() {
     const checkedBoxes = document.querySelectorAll(".batch-file-checkbox:checked");
     if (checkedBoxes.length === 0) {
-        alert("Vui lòng tích chọn các văn bản cần tải về máy!");
+        showToast("warning", "Vui lòng tích chọn các văn bản cần tải về máy!");
         return;
     }
 
@@ -1469,7 +1592,7 @@ async function downloadSelectedBatchFiles() {
         if (!res.ok) {
             let msg = "Không thể tạo file ZIP để tải về.";
             try { const err = await res.json(); msg = err.detail || msg; } catch (e) { }
-            alert(msg);
+            showToast("danger", msg);
             return;
         }
         const blob = await res.blob();
@@ -1482,7 +1605,7 @@ async function downloadSelectedBatchFiles() {
         a.remove();
         window.URL.revokeObjectURL(url);
     } catch (e) {
-        alert("Lỗi kết nối khi tải file ZIP.");
+        showToast("danger", "Lỗi kết nối khi tải file ZIP.");
     } finally {
         if (btn) {
             btn.disabled = false;
@@ -1524,7 +1647,7 @@ async function logoutUser() {
 // =========================================================================
 async function executeVerify() {
     const fileInput = document.getElementById("verify_file");
-    if (fileInput.files.length === 0) return alert("Vui lòng chọn ít nhất một tệp PDF để thẩm định!");
+    if (fileInput.files.length === 0) return showToast("warning", "Vui lòng chọn ít nhất một tệp PDF để thẩm định!");
 
     const btn = document.querySelector("#verify button.btn-success");
     const originalText = btn.innerHTML;
