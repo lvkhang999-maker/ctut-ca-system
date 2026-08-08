@@ -36,6 +36,11 @@ else:
     # pool_pre_ping tránh lỗi "server closed the connection unexpectedly" khi
     # Postgres free tier ngắt kết nối rảnh (idle) sau một khoảng thời gian.
     _engine_kwargs["pool_pre_ping"] = True
+    # Giới hạn connection pool để không vượt quá giới hạn của PostgreSQL free tier
+    # (Render/Railway thường cho tối đa 25 connections).
+    _engine_kwargs["pool_size"] = 5
+    _engine_kwargs["max_overflow"] = 2
+    _engine_kwargs["pool_timeout"] = 30
 
 engine = create_engine(DATABASE_URL, **_engine_kwargs)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
@@ -81,23 +86,6 @@ class SigningLog(Base):
     client_ip = Column(String)
 
 
-def init_db():
-    """Tạo toàn bộ bảng nếu chưa tồn tại (idempotent, an toàn gọi lại nhiều lần)."""
-    Base.metadata.create_all(bind=engine)
-
-
-@contextmanager
-def get_session():
-    session = SessionLocal()
-    try:
-        yield session
-        session.commit()
-    except Exception:
-        session.rollback()
-        raise
-    finally:
-        session.close()
-
 class ActiveOtpSession(Base):
     """Đánh dấu tài khoản giảng viên đã vượt qua xác thực OTP (Bước 2), được phép
     ký ở Bước 3. Trước đây lưu bằng 1 dict Python thuần trong RAM
@@ -127,3 +115,21 @@ class FileStorage(Base):
     file_path = Column(String, primary_key=True) 
     # Lưu nội dung file dưới dạng nhị phân (BYTEA trong PostgreSQL)
     file_data = Column(LargeBinary, nullable=False)
+
+
+def init_db():
+    """Tạo toàn bộ bảng nếu chưa tồn tại (idempotent, an toàn gọi lại nhiều lần)."""
+    Base.metadata.create_all(bind=engine)
+
+
+@contextmanager
+def get_session():
+    session = SessionLocal()
+    try:
+        yield session
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()

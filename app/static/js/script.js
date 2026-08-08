@@ -42,6 +42,10 @@ const STAMP_MAX_WIDTH_PT = 400;
 const STAMP_MAX_HEIGHT_PT = 200;
 // Vị trí mặc định (khớp STAMP_MARGIN_TOP/LEFT = 18 bên pdf_engine.py)
 const STAMP_DEFAULT_MARGIN_PT = 18;
+// Cờ kiểm soát có hiển thị ảnh chữ ký trong dấu ký không (mặc định: có).
+// Khi người dùng nhấn nút X đỏ trên vùng ảnh, cờ này bật tắt và backend
+// sẽ chỉ in khối văn bản "Ký bởi / Ngày / Giờ" mà không đệm ảnh chữ ký.
+let stampUseSignatureImage = true;
 
 // =========================================================================
 // 3. BIẾN TOÀN CỤC: BẢNG KẾT QUẢ THẨM ĐỊNH ĐỒNG LOẠT
@@ -179,7 +183,7 @@ async function fetchHistoryFromServer() {
         rawLogDataset = await res.json();
         handleLogSearchAndFilter();
     } catch (e) {
-        document.getElementById("history_table_body").innerHTML = `<tr><td colspan="5" class="text-center text-danger py-3">Lỗi mất kênh truyền dữ liệu SQLite.</td></tr>`;
+        document.getElementById("history_table_body").innerHTML = `<tr><td colspan="5" class="text-center text-danger py-3">Lỗi mất kênh truyền dữ liệu.</td></tr>`;
     }
 }
 
@@ -234,21 +238,15 @@ function toggleFilenameExpand(element) {
     element.classList.toggle("expanded-text");
 }
 
-// Chuỗi ký nhiều chữ ký nối bằng " ➔ " (vd: "A ➔ B ➔ C ➔ D") có thể rất dài và
-// tràn dòng badge. Xuống dòng cứ mỗi 2 tên, giữ mũi tên ở đầu dòng kế tiếp để
-// thể hiện chuỗi vẫn đang tiếp diễn (vd: "A ➔ B" xuống dòng "➔ C ➔ D").
-// Dùng chung cho cả bảng "Kết Quả Thẩm Định Đồng Loạt" và "Nhật Ký Thẩm Định Hệ Thống".
+// Chuỗi ký nhiều chữ ký nối bằng "->" có thể rất dài và
+// tràn dòng badge. Backend dùng "<br>" làm separator giữa các cặp tên, và
+// "->" làm separator trong cùng 1 cặp. Frontend cần parse lại cho đúng.
+// Ví dụ backend trả về: "A->B<br>->C->D" => hiển thị 2 dòng.
 function formatSignerChain(signerStr) {
     if (!signerStr) return signerStr;
-    const names = signerStr.split(" ➔ ").map(s => s.trim()).filter(Boolean);
-    if (names.length <= 2) return names.join(" ➔ ");
-
-    const lines = [];
-    for (let i = 0; i < names.length; i += 2) {
-        const pair = names.slice(i, i + 2).join(" ➔ ");
-        lines.push(i === 0 ? pair : `➔ ${pair}`);
-    }
-    return lines.join("<br>");
+    // Backend đã format sẵn bằng <br>, chỉ cần trả về trực tiếp
+    // (hàm này được dùng trong innerHTML nên <br> sẽ render đúng)
+    return signerStr;
 }
 
 function renderLogTable() {
@@ -611,12 +609,22 @@ async function loadAdminAuditHistoryList() {
 }
 
 async function executeAdminUpdateUser() {
+    const newPass = document.getElementById("edit_password").value;
+    const confirmPass = document.getElementById("edit_password_confirm").value;
+
+    if (newPass && newPass !== confirmPass) {
+        showResult("edit_user_result", "danger", "❌ Mật khẩu mới và xác nhận không trùng khớp!");
+        return;
+    }
+
     const formData = new FormData();
     formData.append("user_id", document.getElementById("edit_uid").value);
     formData.append("new_common_name", document.getElementById("edit_name").value);
     formData.append("new_email", document.getElementById("edit_email").value);
     formData.append("admin_user", document.getElementById("admin_username").value);
     formData.append("admin_pass", document.getElementById("admin_password").value);
+    // Gửi kèm new_password nếu admin muốn đặt lại mật khẩu khóa Private cho giảng viên
+    if (newPass) formData.append("new_password", newPass);
 
     try {
         const res = await fetch(`${API_BASE}/admin/update-user`, { method: "POST", body: formData });
@@ -726,15 +734,27 @@ async function unlockAdminPanel() {
             const createFormFields = document.getElementById("admin_create_form_fields");
             const restrictionMsg = document.getElementById("admin_create_restriction_msg");
 
-            if (user.toLowerCase() === "superadmin") {
-                CURRENT_LOGGED_ROLE = "SUPER_ADMIN";
+            // Xác định role từ API thay vì hardcode tên username, để đúng khi thêm Super Admin khác
+            let detectedRole = "ADMIN";
+            try {
+                const roleRes = await fetch(`${API_BASE}/admin/roles-list?admin_user=${encodeURIComponent(user)}&admin_pass=${encodeURIComponent(pass)}`);
+                if (roleRes.ok) {
+                    const roleList = await roleRes.json();
+                    const myRecord = roleList.find(r => r.username === user);
+                    if (myRecord && myRecord.role === "SUPER_ADMIN") detectedRole = "SUPER_ADMIN";
+                }
+            } catch (e) {
+                // Không lấy được roles -> giả định ADMIN để an toàn
+            }
+
+            CURRENT_LOGGED_ROLE = detectedRole;
+            if (detectedRole === "SUPER_ADMIN") {
                 badge.innerText = "SUPER ADMIN";
                 badge.className = "badge bg-danger fs-6";
                 superBtn.classList.remove("d-none");
                 createFormFields.classList.remove("d-none");
                 restrictionMsg.classList.add("d-none");
             } else {
-                CURRENT_LOGGED_ROLE = "ADMIN";
                 badge.innerText = "ADMIN (RA OFFICER)";
                 badge.className = "badge bg-primary fs-6";
                 superBtn.classList.add("d-none");
@@ -1094,6 +1114,52 @@ if (window['pdfjsLib']) {
     pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
 }
 
+// Tắt/Bật hiển thị con dấu ký (nút X đỏ góc phải trên).
+// Khi TẮT (stampUseSignatureImage = false): Ẩn cả ảnh lẫn chữ, chuyển sang chế độ KÝ ẨN (Invisible Signature).
+// Backend sẽ thực hiện ký số mật mã PKI đầy đủ nhưng KHÔNG in bất kỳ thông tin con dấu hay chữ nào lên PDF.
+function applyStampSignatureImageState() {
+    const sigArea = document.getElementById("stamp_preview_sig_area");
+    const textArea = document.getElementById("stamp_preview_text_area");
+    const offMsg = document.getElementById("stamp_preview_off_msg");
+    const btn = document.getElementById("btn_toggle_sig_img");
+    if (!sigArea || !btn || !textArea || !offMsg) return;
+
+    if (!stampUseSignatureImage) {
+        // TRẠNG THÁI TẮT (CHẾ ĐỘ KÝ ẨN):
+        // 1. Ẩn toàn bộ ảnh và text con dấu
+        sigArea.classList.add("d-none");
+        textArea.classList.add("d-none");
+        
+        // 2. Hiển thị thông báo "KÝ ẨN (Không in dấu lên PDF)"
+        offMsg.classList.remove("d-none");
+
+        // 3. Cập nhật nút góc phải trên: đổi sang màu xám và biểu tượng cộng
+        btn.style.background = "#6c757d";
+        btn.title = "Bật lại hiển thị con dấu trên PDF";
+        btn.innerHTML = `<i class="fa-solid fa-plus" style="font-size:9px;"></i>`;
+    } else {
+        // TRẠNG THÁI BẬT (CHẾ ĐỘ KÝ HIỂN THỊ):
+        // 1. Tắt thông báo Ký Ẩn
+        offMsg.classList.add("d-none");
+
+        // 2. Hiện lại vùng ảnh chữ ký (55% bên trái) và khối text (45% bên phải)
+        sigArea.classList.remove("d-none");
+        textArea.classList.remove("d-none");
+
+        // 3. Nút góc phải trên: đổi sang màu đỏ và biểu tượng X
+        btn.style.background = "#dc3545";
+        btn.title = "Tắt hiển thị con dấu (Chuyển sang chế độ Ký Ẩn)";
+        btn.innerHTML = "✕";
+
+        loadStampPreviewSignatureImage();
+    }
+}
+
+function toggleSignatureImageArea() {
+    stampUseSignatureImage = !stampUseSignatureImage;
+    applyStampSignatureImageState();
+}
+
 async function handleSignFilesSelected(inputEl) {
     const picker = document.getElementById("stamp_position_picker");
     if (!inputEl.files || inputEl.files.length === 0) {
@@ -1102,8 +1168,6 @@ async function handleSignFilesSelected(inputEl) {
         return;
     }
     if (!window['pdfjsLib']) {
-        // Không load được pdf.js (vd mất mạng CDN) -> ẩn khung preview, backend
-        // vẫn ký bình thường với vị trí mặc định vì stampRatioX/Y giữ nguyên null.
         picker.classList.add("d-none");
         return;
     }
@@ -1118,7 +1182,7 @@ async function handleSignFilesSelected(inputEl) {
         await renderStampPreviewPage(currentStampPageIndex);
         picker.classList.remove("d-none");
         updateStampPreviewInfoText();
-        loadStampPreviewSignatureImage();
+        applyStampSignatureImageState();
         initStampDragHandlers();
     } catch (e) {
         picker.classList.add("d-none");
@@ -1261,17 +1325,53 @@ function positionStampDragBox() {
     box.style.top = `${stampRatioY * canvasPxHeight}px`;
 }
 
-function resetStampPosition() {
+async function resetStampPosition() {
     const picker = document.getElementById("stamp_position_picker");
-    const pagePtWidth = parseFloat(picker.dataset.pagePtWidth);
-    const pagePtHeight = parseFloat(picker.dataset.pagePtHeight);
-    if (!pagePtWidth || !pagePtHeight) return;
+    if (!picker) return;
+
+    let pagePtWidth = parseFloat(picker.dataset.pagePtWidth);
+    let pagePtHeight = parseFloat(picker.dataset.pagePtHeight);
+
+    if (!pagePtWidth || !pagePtHeight) {
+        if (currentStampPdfDoc) {
+            try {
+                const page = await currentStampPdfDoc.getPage(1);
+                pagePtWidth = page.view[2] - page.view[0];
+                pagePtHeight = page.view[3] - page.view[1];
+                picker.dataset.pagePtWidth = pagePtWidth;
+                picker.dataset.pagePtHeight = pagePtHeight;
+            } catch (e) {
+                pagePtWidth = 595.28;
+                pagePtHeight = 841.89;
+            }
+        } else {
+            pagePtWidth = 595.28;
+            pagePtHeight = 841.89;
+        }
+    }
+
+    // 1. Đặt lại vị trí góc trên-trái (lề 18pt)
     stampRatioX = STAMP_DEFAULT_MARGIN_PT / pagePtWidth;
     stampRatioY = STAMP_DEFAULT_MARGIN_PT / pagePtHeight;
-    // Đặt lại mặc định cũng trả kích thước về giá trị gốc (170x55pt), không chỉ vị trí.
+
+    // 2. Đặt lại kích thước khung dấu về chuẩn 170x55pt
     stampWidthPt = 170;
     stampHeightPt = 55;
-    positionStampDragBox();
+
+    // 3. Khôi phục chế độ BẬT hiển thị con dấu con dấu nếu đang tắt (Ký Ẩn)
+    if (!stampUseSignatureImage) {
+        stampUseSignatureImage = true;
+        applyStampSignatureImageState();
+    }
+
+    // 4. Nhảy về trang 1
+    if (currentStampPdfDoc) {
+        jumpToStampPage(0);
+    } else {
+        positionStampDragBox();
+    }
+
+    showToast("info", "Đã đặt lại vị trí và kích thước con dấu về mặc định.");
 }
 
 let _stampDragHandlersInitialized = false;
@@ -1470,6 +1570,10 @@ async function executeBatchSign() {
         formData.append("stamp_width_pt", stampWidthPt);
         formData.append("stamp_height_pt", stampHeightPt);
     }
+    // Thông báo backend có dùng ảnh chữ ký không (theo lựa chọn của người dùng qua nút X)
+    const useSigFlag = stampUseSignatureImage ? "true" : "false";
+    console.log("[CTUT CA System] Sending stamp_use_signature_image =", useSigFlag);
+    formData.append("stamp_use_signature_image", useSigFlag);
 
     try {
         const res = await fetch(`${API_BASE}/pdf/batch-sign`, { method: "POST", body: formData });

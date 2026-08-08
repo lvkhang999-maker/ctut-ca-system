@@ -103,6 +103,11 @@ from dotenv import load_dotenv
 load_dotenv()
 _otp_cache = {}
 
+# Tính PROJECT_ROOT từ vị trí file này (app/core/auth_engine.py) → app/core → app → project_root
+_CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(_CURRENT_DIR))
+_STORAGE_USERS = os.path.join(_PROJECT_ROOT, "storage", "users")
+
 # Endpoint gửi email giao dịch (transactional) của Brevo. Dùng HTTP API (cổng 443)
 # thay vì SMTP (cổng 25/465/587) vì nhiều nền tảng hosting free tier (Render...)
 # chặn hẳn các cổng SMTP để chống spam, nhưng không thể chặn cổng 443 (web traffic).
@@ -111,7 +116,8 @@ BREVO_API_URL = "https://api.brevo.com/v3/smtp/email"
 class AuthEngine:
     @staticmethod
     def extract_email_from_cert(user_id: str) -> str:
-        cert_path = f"storage/users/{user_id}_cert.pem"
+        # Dùng absolute path để tránh lỗi phụ thuộc CWD khi server khởi động
+        cert_path = os.path.join(_STORAGE_USERS, f"{user_id}_cert.pem")
         if not os.path.exists(cert_path):
             raise FileNotFoundError("Thành viên chưa có chứng thư điện tử.")
             

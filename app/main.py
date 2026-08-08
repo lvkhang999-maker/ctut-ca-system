@@ -108,6 +108,7 @@ def patched_generate_otp(user_id):
 
 def patched_verify_otp(user_id, otp):
     if user_id in _sandbox_otps and _sandbox_otps[user_id] == otp:
+        del _sandbox_otps[user_id]  # BẮT BUỘC: xóa OTP sandbox sau khi dùng để không bị tái sử dụng
         return True
     return _orig_verify_otp(user_id, otp)
 
@@ -725,7 +726,8 @@ async def sign_documents_in_batch(
     stamp_ratio_y: float = Form(None),
     stamp_page_index: int = Form(0),
     stamp_width_pt: float = Form(None),
-    stamp_height_pt: float = Form(None)
+    stamp_height_pt: float = Form(None),
+    stamp_use_signature_image: str = Form("true")   # "true" | "false" dưới dạng cỗi (Form không parse bool tự động)
 ):
     # Kiểm tra OTP Session
     if not _is_otp_session_active(user_id):
@@ -758,6 +760,10 @@ async def sign_documents_in_batch(
         with open(input_path, "wb") as f:
             f.write(raw_bytes)
 
+        # Chuyển cỗi string sang bool (Form không parse bool tự động)
+        val_str = str(stamp_use_signature_image).lower().strip()
+        use_sig_img = val_str not in ("false", "0", "no", "off", "none", "invisible")
+        
         PDFEngine.sign_pdf(
             user_id,
             password,
@@ -767,7 +773,8 @@ async def sign_documents_in_batch(
             stamp_ratio_y=stamp_ratio_y,
             stamp_page_index=stamp_page_index,
             stamp_width_pt=stamp_width_pt,
-            stamp_height_pt=stamp_height_pt
+            stamp_height_pt=stamp_height_pt,
+            use_signature_image=use_sig_img
         )
         # Lưu bản sao file đã ký lên PostgreSQL để nút "Mở xem" trong Lịch Sử Ký
         # vẫn hoạt động được sau khi Render redeploy/restart làm mất thư mục temp/.
@@ -955,10 +962,11 @@ async def download_batch_zip(filenames: List[str] = Form(...)):
         for arcname, path in files_to_zip:
             zipf.write(path, arcname=arcname)
 
+    download_filename = "Signed_PDFs.zip"
     return FileResponse(
         path=zip_path,
         media_type="application/zip",
-        filename="Signed_PDFs.zip"
+        headers={"Content-Disposition": build_content_disposition("attachment", download_filename)}
     )
 
 @app.post("/api/v1/pdf/verify")
@@ -1077,7 +1085,8 @@ def sync_db_to_storage():
         print(f"Bỏ qua đồng bộ file DB lần đầu: {e}")
 
 def sync_storage_to_db():
-    """Đẩy toàn bộ thư mục storage (CA, User) hiện tại lên PostgreSQL"""
+    """Đẩy toàn bộ thư mục storage (CA, User) hiện tại lên PostgreSQL.
+    Chỉ ghi đè khi nội dung thực sự thay đổi để tiết kiệm băng thông và I/O."""
     try:
         with get_session() as db:
             for root_dir, _, files in os.walk(os.path.join(PROJECT_ROOT, "storage")):
@@ -1093,7 +1102,9 @@ def sync_storage_to_db():
                     
                     record = db.query(FileStorage).filter_by(file_path=rel_path).first()
                     if record:
-                        record.file_data = data
+                        # Chỉ ghi đè khi nội dung thực sự thay đổi (tránh tốn I/O thừa)
+                        if record.file_data != data:
+                            record.file_data = data
                     else:
                         db.add(FileStorage(file_path=rel_path, file_data=data))
     except Exception as e:

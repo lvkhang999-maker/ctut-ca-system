@@ -56,7 +56,8 @@ class PDFEngine:
     @staticmethod
     def sign_pdf(user_id: str, user_password: str, input_pdf_path: str, output_pdf_path: str,
                  stamp_ratio_x: float = None, stamp_ratio_y: float = None, stamp_page_index: int = 0,
-                 stamp_width_pt: float = None, stamp_height_pt: float = None):
+                 stamp_width_pt: float = None, stamp_height_pt: float = None,
+                 use_signature_image: bool = True):
         effective_width = STAMP_WIDTH
         effective_height = STAMP_HEIGHT
         if stamp_width_pt is not None and stamp_width_pt > 0:
@@ -170,50 +171,57 @@ class PDFEngine:
                 stamp_lines.append(f"Giờ: {now_vn.strftime('%H:%M:%S')}")
                 stamp_text = "\n".join(stamp_lines)
 
-                # 2. LOAD ẢNH
-                user_signature_path = os.path.join(STORAGE_USERS, f"{user_id}_signature.png")
-                if os.path.exists(user_signature_path):
-                    background_image = PdfImage(user_signature_path)
-                elif os.path.exists(LOGO_PATH):
-                    background_image = PdfImage(LOGO_PATH)
-                else:
-                    background_image = None
-                text_box_style = (
-                    TextBoxStyle(font=GlyphAccumulatorFactory(FONT_PATH))
-                    if os.path.exists(FONT_PATH) else TextBoxStyle()
-                )
-                
-                # 3. CHIA TỶ LỆ CỘT ĐỘNG
-                left_col_right_margin = effective_width * 0.45 
-                right_col_left_margin = effective_width * 0.55
-                stamp_style = _build_stamp_style(
-                    stamp_text=stamp_text,
-                    background=background_image,
+                if use_signature_image:
+                    # Chế độ Ký Hiển Thị (Visual Stamp): Nạp ảnh và dựng layout
+                    user_signature_path = os.path.join(STORAGE_USERS, f"{user_id}_signature.png")
+                    if os.path.exists(user_signature_path):
+                        background_image = PdfImage(user_signature_path)
+                    elif os.path.exists(LOGO_PATH):
+                        background_image = PdfImage(LOGO_PATH)
+                    else:
+                        background_image = None
 
-                    background_layout=SimpleBoxLayoutRule(
-                        x_align=AxisAlignment.ALIGN_MIN,
-                        y_align=AxisAlignment.ALIGN_MID,
-                        margins=Margins(left=5, right=left_col_right_margin, top=5, bottom=5),
-                    ),
-                    background_opacity=0.95,
-                    text_box_style=text_box_style,
+                    text_box_style = (
+                        TextBoxStyle(font=GlyphAccumulatorFactory(FONT_PATH))
+                        if os.path.exists(FONT_PATH) else TextBoxStyle()
+                    )
+                    
+                    left_col_right_margin = effective_width * 0.45 
+                    right_col_left_margin = effective_width * 0.55
+                    stamp_style = _build_stamp_style(
+                        stamp_text=stamp_text,
+                        background=background_image,
 
-                    inner_content_layout=SimpleBoxLayoutRule(
-                        x_align=AxisAlignment.ALIGN_MIN,
-                        y_align=AxisAlignment.ALIGN_MID,
-                        margins=Margins(left=right_col_left_margin, right=5, top=5, bottom=5),
-                    ),
-                    border_width=STAMP_BORDER_WIDTH,
-                    border_color=STAMP_BORDER_COLOR,
-                )
+                        background_layout=SimpleBoxLayoutRule(
+                            x_align=AxisAlignment.ALIGN_MIN,
+                            y_align=AxisAlignment.ALIGN_MID,
+                            margins=Margins(left=5, right=left_col_right_margin, top=5, bottom=5),
+                        ),
+                        background_opacity=0.95,
+                        text_box_style=text_box_style,
 
-                fields.append_signature_field(
-                    w, sig_field_spec=fields.SigFieldSpec(
+                        inner_content_layout=SimpleBoxLayoutRule(
+                            x_align=AxisAlignment.ALIGN_MIN,
+                            y_align=AxisAlignment.ALIGN_MID,
+                            margins=Margins(left=right_col_left_margin, right=5, top=5, bottom=5),
+                        ),
+                        border_width=STAMP_BORDER_WIDTH,
+                        border_color=STAMP_BORDER_COLOR,
+                    )
+                    sig_field_spec = fields.SigFieldSpec(
                         sig_field_name=unique_sig_id, 
                         on_page=safe_page_index,
                         box=stamping_box
                     )
-                )
+                else:
+                    # Chế độ Ký Ẩn (Invisible Signature): Không in bất kỳ thông tin hình ảnh hay chữ nào lên PDF
+                    stamp_style = None
+                    sig_field_spec = fields.SigFieldSpec(
+                        sig_field_name=unique_sig_id, 
+                        on_page=safe_page_index
+                    )
+
+                fields.append_signature_field(w, sig_field_spec=sig_field_spec)
 
                 pdf_signer = signers.PdfSigner(
                     signers.PdfSignatureMetadata(field_name=unique_sig_id),
@@ -231,12 +239,14 @@ class PDFEngine:
     def verify_pdf(pdf_path: str):
         with open(pdf_path, 'rb') as f:
             try:
-                w = IncrementalPdfFileWriter(f)
-                if not w.prev.embedded_signatures:
+                # Dùng PdfFileReader (đúng mục đích) thay vì IncrementalPdfFileWriter
+                # để đọc chữ ký nhúng trong file PDF.
+                reader = PdfFileReader(f, strict=False)
+                if not reader.embedded_signatures:
                     return {"valid": False, "error": "Chưa có chữ ký."}
                 
                 verification_stack = []
-                for sig in w.prev.embedded_signatures:
+                for sig in reader.embedded_signatures:
                     status = validate_pdf_signature(sig)
                     
                     signer_name = ""
@@ -291,4 +301,4 @@ class PDFEngine:
                     "summary": summary_txt
                 }
             except Exception as e:
-                return {"valid": False, "error": f"Lỗi: {str(e)}"}
+                return {"valid": False, "error": f"Lỗi: {str(e)}"}

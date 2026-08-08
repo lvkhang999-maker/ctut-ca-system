@@ -6,8 +6,11 @@ from cryptography.x509.oid import NameOID
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 
-STORAGE_CA = "storage/ca"
-STORAGE_USERS = "storage/users"
+# Dùng absolute path để tránh phụ thuộc vào CWD khi server khởi động từ thư mục khác
+_CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(_CURRENT_DIR))
+STORAGE_CA = os.path.join(_PROJECT_ROOT, "storage", "ca")
+STORAGE_USERS = os.path.join(_PROJECT_ROOT, "storage", "users")
 os.makedirs(STORAGE_CA, exist_ok=True)
 os.makedirs(STORAGE_USERS, exist_ok=True)
 
