@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="vi">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cổng Tra Cứu & Thẩm Định Giấy Báo Trúng Tuyển - CTUT CA System</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --ctut-navy: #0f2d59;
+            --ctut-blue: #1d4ed8;
+            --ctut-gold: #f59e0b;
+            --ctut-bg: #f8fafc;
+        }
+
+        body {
+            font-family: 'Outfit', sans-serif;
+            background-color: var(--ctut-bg);
+            color: #1e293b;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .navbar-custom {
+            background: linear-gradient(135deg, var(--ctut-navy) 0%, #1e3a8a 100%);
+            box-shadow: 0 4px 20px rgba(15, 45, 89, 0.15);
+        }
+
+        .hero-section {
+            background: linear-gradient(180deg, #0f2d59 0%, #1e40af 100%);
+            color: white;
+            padding: 40px 0 60px;
+            border-radius: 0 0 30px 30px;
+        }
+
+        .drop-zone {
+            border: 2px dashed #cbd5e1;
+            border-radius: 16px;
+            background: #ffffff;
+            transition: all 0.3s ease;
+            cursor: pointer;
+            padding: 40px 20px;
+            text-align: center;
+        }
+
+        .drop-zone:hover, .drop-zone.dragover {
+            border-color: var(--ctut-blue);
+            background: #eff6ff;
+            transform: translateY(-2px);
+        }
+
+        .card-result {
+            border: none;
+            border-radius: 20px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
+            overflow: hidden;
+        }
+
+        .badge-verified {
+            background: #dcfce7;
+            color: #15803d;
+            border: 1px solid #86efac;
+            font-weight: 600;
+            padding: 6px 14px;
+            border-radius: 30px;
+        }
+
+        .badge-invalid {
+            background: #fee2e2;
+            color: #b91c1c;
+            border: 1px solid #fca5a5;
+            font-weight: 600;
+            padding: 6px 14px;
+            border-radius: 30px;
+        }
+
+        .badge-unsigned {
+            background: #fef3c7;
+            color: #b45309;
+            border: 1px solid #fde68a;
+            font-weight: 600;
+            padding: 6px 14px;
+            border-radius: 30px;
+        }
+    </style>
+</head>
+
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark navbar-custom py-3">
+        <div class="container">
+            <a class="navbar-brand d-flex align-items-center fw-bold" href="/tra-cuu">
+                <img src="/static/images/logo_ctut.png" alt="CTUT Logo" height="42" class="me-3 bg-white p-1 rounded-circle" onerror="this.style.display='none'">
+                <div>
+                    <div style="font-size: 15px; letter-spacing: 0.5px;">TRƯỜNG ĐẠI HỌC KỸ THUẬT - CÔNG NGHỆ CẦN THƠ</div>
+                    <div class="small opacity-75 fw-normal">CỔNG XÁC THỰC VĂN BẢN & GIẤY BÁO TRÚNG TUYỂN CHÍNH THỨC</div>
+                </div>
+            </a>
+            <div class="ms-auto">
+                <a href="/" class="btn btn-outline-light btn-sm rounded-pill px-3 fw-bold">
+                    <i class="fa-solid fa-user-shield me-1"></i> Dành Cho Cán Bộ / Admin
+                </a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="hero-section text-center">
+        <div class="container">
+            <span class="badge bg-warning text-dark px-3 py-2 rounded-pill fw-bold mb-3 shadow-sm">
+                <i class="fa-solid fa-certificate me-1"></i> Thẩm định Chuẩn Quốc gia X.509 PKI
+            </span>
+            <h2 class="fw-bold mb-2">Tra Cứu & Xác Thực Giấy Báo Trúng Tuyển</h2>
+            <p class="lead opacity-90 mx-auto" style="max-width: 650px; font-size: 16px;">
+                Kiểm tra tính hợp lệ và nguyên vẹn của Giấy báo trúng tuyển điện tử được phát hành chính thức bởi Trường Đại học Kỹ thuật - Công nghệ Cần Thơ.
+            </p>
+        </div>
+    </div>
+
+    <div class="container my-5 flex-grow-1">
+        <div class="row justify-content-center">
+            <div class="col-12 col-lg-8">
+                <div class="card card-result p-4 p-md-5 bg-white">
+                    <div class="drop-zone mb-4" id="dropZone" onclick="document.getElementById('verifyInput').click()">
+                        <input type="file" id="verifyInput" accept=".pdf" class="d-none" onchange="handleFileSelected(this.files)">
+                        <div class="mb-3">
+                            <i class="fa-solid fa-file-circle-check text-primary display-4"></i>
+                        </div>
+                        <h5 class="fw-bold text-dark mb-1" id="fileNameDisplay">Tải lên Giấy báo trúng tuyển (File PDF)</h5>
+                        <p class="text-muted small mb-0">Kéo thả tệp PDF vào đây hoặc bấm để chọn tệp từ máy tính/điện thoại</p>
+                    </div>
+
+                    <button type="button" id="btnVerify" class="btn btn-primary w-100 py-3 fw-bold rounded-3 fs-6 shadow-sm" style="background-color: var(--ctut-navy); border: none;" onclick="executeVerifyPublic()" disabled>
+                        <i class="fa-solid fa-shield-halved me-2"></i> THẨM ĐỊNH CHỮ KÝ SỐ VĂN BẢN
+                    </button>
+
+                    <div id="verifyResult" class="mt-4"></div>
+                </div>
+
+                <div class="mt-4 text-center text-muted small">
+                    <i class="fa-solid fa-lock me-1"></i> Hệ thống sử dụng công nghệ chữ ký số công khai RSA PKCS#1 v1.5 kết hợp hàm băm SHA-256 chuẩn Bộ Thông tin & Truyền thông.
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <footer class="bg-white py-3 border-top text-center text-muted small">
+        <div class="container">
+            © 2026 CTUT CA System — Trường Đại học Kỹ thuật - Công nghệ Cần Thơ (CTUT)
+        </div>
+    </footer>
+
+    <script>
+        const API_BASE = "/api/v1";
+        let selectedFile = null;
+
+        const dropZone = document.getElementById('dropZone');
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            dropZone.addEventListener(eventName, preventDefaults, false);
+        });
+        function preventDefaults(e) { e.preventDefault(); e.stopPropagation(); }
+
+        ['dragenter', 'dragover'].forEach(eventName => {
+            dropZone.addEventListener(eventName, () => dropZone.classList.add('dragover'), false);
+        });
+        ['dragleave', 'drop'].forEach(eventName => {
+            dropZone.addEventListener(eventName, () => dropZone.classList.remove('dragover'), false);
+        });
+
+        dropZone.addEventListener('drop', (e) => {
+            const dt = e.dataTransfer;
+            const files = dt.files;
+            handleFileSelected(files);
+        });
+
+        function handleFileSelected(files) {
+            if (!files || files.length === 0) return;
+            const file = files[0];
+            if (!file.name.toLowerCase().endsWith('.pdf')) {
+                alert("Vui lòng chỉ chọn tệp định dạng PDF!");
+                return;
+            }
+            selectedFile = file;
+            document.getElementById('fileNameDisplay').innerHTML = `<i class="fa-solid fa-file-pdf text-danger me-2"></i>${file.name} <span class="badge bg-secondary ms-2">${(file.size / 1024 / 1024).toFixed(2)} MB</span>`;
+            document.getElementById('btnVerify').disabled = false;
+        }
+
+        async function executeVerifyPublic() {
+            if (!selectedFile) return;
+
+            const btn = document.getElementById('btnVerify');
+            const resDiv = document.getElementById('verifyResult');
+            btn.disabled = true;
+            btn.innerHTML = `<span class="spinner-border spinner-border-sm me-2"></span>Đang đối sánh dấu ấn mật mã X.509...`;
+            resDiv.innerHTML = "";
+
+            const formData = new FormData();
+            formData.append("files", selectedFile);
+
+            try {
+                const res = await fetch(`${API_BASE}/pdf/verify`, { method: "POST", body: formData });
+                const data = await res.json();
+
+                if (res.ok && data.results && data.results.length > 0) {
+                    const result = data.results[0];
+                    renderVerificationCard(result);
+                } else {
+                    resDiv.innerHTML = `<div class="alert alert-danger rounded-3 fw-bold">❌ Không thể đối sánh tệp tin: ${data.detail || "Lỗi dữ liệu."}</div>`;
+                }
+            } catch (e) {
+                resDiv.innerHTML = `<div class="alert alert-danger rounded-3 fw-bold">❌ Lỗi kết nối đến máy chủ thẩm định.</div>`;
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = `<i class="fa-solid fa-shield-halved me-2"></i> THẨM ĐỊNH CHỮ KÝ SỐ VĂN BẢN`;
+            }
+        }
+
+        function renderVerificationCard(item) {
+            const resDiv = document.getElementById('verifyResult');
+            let badgeClass = "badge-verified";
+            let statusTitle = "VĂN BẢN NGUYÊN VẸN & HỢP LỆ";
+            let statusIcon = "fa-circle-check text-success";
+            let descText = "Chữ ký số X.509 được phát hành chính thức bởi Trường Đại học Kỹ thuật - Công nghệ Cần Thơ. Văn bản không bị chỉnh sửa sau khi đóng dấu.";
+
+            if (item.code === "ALTERED") {
+                badgeClass = "badge-invalid";
+                statusTitle = "CẢNH BÁO: VĂN BẢN ĐÃ BỊ CHỈNH SỬA";
+                statusIcon = "fa-triangle-exclamation text-danger";
+                descText = "Phát hiện nội dung tệp PDF đã bị can thiệp/sửa đổi sau khi đóng dấu chữ ký số!";
+            } else if (item.code === "UNSIGNED") {
+                badgeClass = "badge-unsigned";
+                statusTitle = "VĂN BẢN CHƯA ĐƯỢC ĐÓNG DẤU CHỮ KÝ SỐ";
+                statusIcon = "fa-circle-question text-warning";
+                descText = "Tệp PDF này chưa có chữ ký số mã hóa X.509 của Trường ĐH Kỹ thuật - Công nghệ Cần Thơ.";
+            } else if (item.code === "INVALID" || item.code === "STRUCT_ERR") {
+                badgeClass = "badge-invalid";
+                statusTitle = "CHỮ KÝ SỐ KHÔNG HỢP LỆ";
+                statusIcon = "fa-circle-xmark text-danger";
+                descText = "Chữ ký số không khớp với hệ thống chứng thư số của Nhà trường.";
+            }
+
+            resDiv.innerHTML = `
+                <div class="card border rounded-3 p-4 bg-light">
+                    <div class="d-flex align-items-center mb-3">
+                        <i class="fa-solid ${statusIcon} fs-1 me-3"></i>
+                        <div>
+                            <h5 class="fw-bold mb-1">${statusTitle}</h5>
+                            <span class="${badgeClass}">${item.status_text}</span>
+                        </div>
+                    </div>
+                    <p class="small text-secondary mb-3">${descText}</p>
+                    <div class="border-top pt-3">
+                        <div class="row g-2 small">
+                            <div class="col-4 text-muted fw-semibold">Tệp tin:</div>
+                            <div class="col-8 text-dark fw-bold">${item.filename}</div>
+                            <div class="col-4 text-muted fw-semibold">Người/Đơn vị đóng dấu:</div>
+                            <div class="col-8 text-primary fw-bold">${item.signer || "Chưa xác định"}</div>
+                            <div class="col-4 text-muted fw-semibold">Đơn vị chủ quản:</div>
+                            <div class="col-8 text-dark">Trường Đại học Kỹ thuật - Công nghệ Cần Thơ (CTUT)</div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+    </script>
+</body>
+
+</html>

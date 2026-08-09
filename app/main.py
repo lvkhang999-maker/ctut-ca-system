@@ -255,6 +255,14 @@ async def get_portal_interface():
             return f.read()
     return "<h3>Hệ thống đang khởi tạo giao diện Front-end...</h3>"
 
+@app.get("/tra-cuu", response_class=HTMLResponse, include_in_schema=False)
+async def get_public_verification_interface():
+    html_path = os.path.join(CURRENT_DIR, "tra_cuu.html")
+    if os.path.exists(html_path):
+        with open(html_path, "r", encoding="utf-8") as f:
+            return f.read()
+    return "<h3>Đang tải Cổng Tra cứu & Thẩm định Giấy báo Trúng tuyển...</h3>"
+
 @app.post("/api/v1/admin/toggle-active")
 async def admin_toggle_active(
     target_user: str = Form(...),
