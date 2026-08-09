@@ -911,19 +911,25 @@ async function executeRequestOTP() {
         const res = await fetch(`${API_BASE}/pdf/request-signing-otp`, { method: "POST", body: formData });
         const data = await res.json();
         if (res.ok) {
-            document.getElementById("panel_step_1").classList.add("d-none");
-            document.getElementById("panel_step_2").classList.remove("d-none");
-            document.getElementById("txt_active_user").innerText = uid;
+            sessionStorage.setItem("ctut_active_uid", uid);
             document.getElementById("sign_result").innerHTML = "";
-            // QUAN TRỌNG: trước đây data.message bị bỏ qua hoàn toàn. Nếu gửi email
-            // thật thất bại (vd Brevo lỗi), server sẽ tự chuyển sang "chế độ giả lập"
-            // và trả kèm MÃ OTP ngay trong message này - nếu không hiển thị ra thì
-            // người dùng không có cách nào biết mã đó để nhập ở Bước 2.
-            if (data.message) {
-                const isWarning = data.message.includes("⚠️");
-                showResult("sign_result", isWarning ? "warning" : "success", data.message);
+
+            if (data.session_active) {
+                // Phiên OTP vẫn còn hiệu lực trên server -> Bỏ qua OTP, vào thẳng Bước 3 Ký số!
+                document.getElementById("panel_step_1").classList.add("d-none");
+                document.getElementById("panel_step_3").classList.remove("d-none");
+                updateHeaderSignaturePreview();
+            } else {
+                // Cần xác thực OTP -> Chuyển sang Bước 2
+                document.getElementById("panel_step_1").classList.add("d-none");
+                document.getElementById("panel_step_2").classList.remove("d-none");
+                document.getElementById("txt_active_user").innerText = uid;
+                if (data.message) {
+                    const isWarning = data.message.includes("⚠️");
+                    showResult("sign_result", isWarning ? "warning" : "success", data.message);
+                }
+                startOtpCountdown();
             }
-            startOtpCountdown();
         } else { showResult("sign_result", "danger", `Thất bại: ${data.detail}`); }
     } catch (e) { showResult("sign_result", "danger", "Lỗi kết nối server API Gateway!"); }
     finally { btn.disabled = false; btn.innerHTML = `<i class="fa-solid fa-paper-plane me-2"></i>Xác thực danh tính & Gửi mã OTP`; }
@@ -1025,49 +1031,11 @@ async function executeResendOTP() {
 // nhớ phiên OTP hợp lệ. Giờ dùng sessionStorage (KHÔNG lưu mật khẩu, chỉ lưu
 // user_id, và tự xóa khi đóng tab) để phát hiện và mời người dùng tiếp tục ký
 // ngay mà không cần xin OTP mới - chỉ cần nhập lại mật khẩu.
-async function checkResumeSessionOnLoad() {
+function checkResumeSessionOnLoad() {
     const savedUid = sessionStorage.getItem("ctut_active_uid");
-    const savedPwd = sessionStorage.getItem("ctut_active_pwd"); // Dòng thêm mới
-    if (!savedUid) return;
-
-    document.getElementById("sign_uid").value = savedUid;
-
-    try {
-        const res = await fetch(`${API_BASE}/user/session-status/${encodeURIComponent(savedUid)}`);
-        const data = await res.json();
-        if (res.ok && data.active) {
-            if (savedPwd) {
-                // AUTO-RESUME: Tự động điền pass và nhảy thẳng vào Bước 3 (Bỏ qua banner rườm rà)
-                document.getElementById("sign_pwd").value = savedPwd;
-                document.getElementById("panel_step_1").classList.add("d-none");
-                document.getElementById("panel_step_3").classList.remove("d-none");
-                updateHeaderSignaturePreview();
-                document.getElementById("sign_result").innerHTML = "";
-            } else {
-                // Fallback: Banner cũ phòng trường hợp user xóa storage mật khẩu nhưng còn UID
-                const banner = document.getElementById("resume_session_banner");
-                document.getElementById("resume_session_uid").innerText = savedUid;
-                banner.classList.remove("d-none");
-                document.getElementById("sign_pwd").focus();
-            }
-        } else {
-            sessionStorage.removeItem("ctut_active_uid");
-            sessionStorage.removeItem("ctut_active_pwd"); // Dòng thêm mới
-        }
-    } catch (e) {
-        // Mất mạng lúc kiểm tra -> im lặng bỏ qua, người dùng vẫn đăng nhập lại bình thường.
+    if (savedUid) {
+        document.getElementById("sign_uid").value = savedUid;
     }
-}
-
-function resumeSessionContinueSigning() {
-    const pwd = document.getElementById("sign_pwd").value;
-    if (!pwd) {
-        showResult("sign_result", "danger", "Vui lòng nhập lại mật khẩu khóa Private để tiếp tục!");
-        return;
-    }
-    document.getElementById("panel_step_1").classList.add("d-none");
-    document.getElementById("panel_step_3").classList.remove("d-none");
-    document.getElementById("sign_result").innerHTML = "";
 }
 
 document.addEventListener("DOMContentLoaded", checkResumeSessionOnLoad);

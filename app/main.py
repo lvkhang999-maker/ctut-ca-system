@@ -682,17 +682,24 @@ async def request_signing_otp(user_id: str = Form(...), password: str = Form(...
     try:
         with open(key_path, "rb") as f:
             serialization.load_pem_private_key(f.read(), password=password.encode())
-        try:
-            # Khi đổi sang luồng 3 bước, xóa trạng thái OTP cũ để cấp mới sạch đệm
-            # _user_active_sessions[user_id] = False |cmt dòng này
 
+        # Nếu tài khoản đã xác thực OTP trước đó và phiên làm việc vẫn còn hiệu lực
+        if _is_otp_session_active(user_id):
+            return {
+                "status": "success",
+                "session_active": True,
+                "message": "Xác thực danh tính thành công. Phiên OTP vẫn còn hiệu lực."
+            }
+
+        try:
             AuthEngine.generate_otp(user_id)
-            return {"status": "success", "message": "Mã OTP đã được gửi thành công qua Email công vụ."}
+            return {"status": "success", "session_active": False, "message": "Mã OTP đã được gửi thành công qua Email công vụ."}
         except Exception as e:
             if "SANDBOX_MODE:" in str(e):
                 otp_code = str(e).split("SANDBOX_MODE:")[1]
                 return {
-                    "status": "success", 
+                    "status": "success",
+                    "session_active": False,
                     "message": f"⚠️ [Chế độ Thử nghiệm Hội đồng]: Do tường lửa Cloud Render chặn cổng Outbound SMTP (587/465) của gói Free, hệ thống kích hoạt chế độ giả lập an toàn. Mã OTP kích hoạt lượt ký số của bạn là: {otp_code}"
                 }
             raise HTTPException(status_code=500, detail=str(e))
