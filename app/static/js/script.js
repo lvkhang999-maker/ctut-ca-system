@@ -16,6 +16,7 @@ let tableSortAscending = false;
 // 2. BIẾN TOÀN CỤC: BẢNG KẾT QUẢ KÝ ĐỒNG LOẠT (BƯỚC 3)
 // =========================================================================
 let batchFilesDataset = [];
+let selectedBatchFiles = new Set();
 let batchCurrentPage = 1;
 const batchRowsPerPage = 10;
 
@@ -1581,6 +1582,7 @@ async function executeBatchSign() {
 
         if (res.ok) {
             batchFilesDataset = data.filenames;
+            selectedBatchFiles = new Set(data.filenames);
             batchCurrentPage = 1;
             renderBatchFilesTable();
         } else {
@@ -1597,19 +1599,37 @@ async function executeBatchSign() {
 
 function renderBatchFilesTable() {
     const totalRecords = batchFilesDataset.length;
+    if (totalRecords === 0) {
+        document.getElementById("sign_result").innerHTML = "";
+        return;
+    }
+
     const totalPages = Math.ceil(totalRecords / batchRowsPerPage);
 
     if (batchCurrentPage > totalPages) batchCurrentPage = totalPages;
+    if (batchCurrentPage < 1) batchCurrentPage = 1;
+
     const startIndex = (batchCurrentPage - 1) * batchRowsPerPage;
     const endIndex = Math.min(startIndex + batchRowsPerPage, totalRecords);
     const pagedData = batchFilesDataset.slice(startIndex, endIndex);
 
+    const allOnPageSelected = pagedData.length > 0 && pagedData.every(fn => selectedBatchFiles.has(fn));
+    const selectedCount = selectedBatchFiles.size;
+
     let tableHtml = `
         <div class="alert alert-success border-0 rounded-3 mb-3">🎉 Hệ thống hoàn tất tiến trình ký số đồng loạt thành công cho toàn bộ ${totalRecords} văn bản PDF.</div>
-        <div class="d-flex justify-content-between align-items-center mb-2">
-            <button type="button" class="btn btn-sm btn-primary rounded-2 px-3 fw-bold shadow-sm" onclick="downloadSelectedBatchFiles()">
-                <i class="fa-solid fa-cloud-arrow-down me-1"></i> Tải các file đã chọn
-            </button>
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+            <div class="d-flex align-items-center gap-2 flex-wrap">
+                <button type="button" class="btn btn-sm btn-primary rounded-2 px-3 fw-bold shadow-sm" onclick="downloadSelectedBatchFiles()">
+                    <i class="fa-solid fa-cloud-arrow-down me-1"></i> Tải các file đã chọn (<span id="batch_selected_count">${selectedCount}</span>/${totalRecords})
+                </button>
+                <button type="button" class="btn btn-sm btn-outline-primary rounded-2 px-2 fw-semibold" onclick="selectAllBatchFiles(true)">
+                    <i class="fa-solid fa-square-check me-1"></i> Chọn tất cả (${totalRecords} tệp)
+                </button>
+                <button type="button" class="btn btn-sm btn-outline-secondary rounded-2 px-2 fw-semibold" onclick="selectAllBatchFiles(false)">
+                    <i class="fa-regular fa-square me-1"></i> Bỏ chọn tất cả
+                </button>
+            </div>
             <span class="small fw-semibold text-muted">Hiển thị ${startIndex + 1} - ${endIndex} trong ${totalRecords} tệp</span>
         </div>
         <div class="table-responsive border rounded-3 bg-white mb-2">
@@ -1617,7 +1637,7 @@ function renderBatchFilesTable() {
                 <thead class="table-light">
                     <tr>
                         <th style="width: 50px;" class="text-center">
-                            <input type="checkbox" id="batch_select_all" class="form-check-input" onclick="toggleSelectAllBatch(this)">
+                            <input type="checkbox" id="batch_select_all" class="form-check-input" ${allOnPageSelected ? 'checked' : ''} onclick="toggleSelectAllPageBatch(this)">
                         </th>
                         <th>Tên tệp tin đã đóng dấu mã hóa X.509</th>
                         <th class="text-center" style="width: 120px;">Hành động</th>
@@ -1626,10 +1646,11 @@ function renderBatchFilesTable() {
                 <tbody>
                     ${pagedData.map(fn => {
         const cleanName = fn.replace("signed_batch_", "");
+        const isChecked = selectedBatchFiles.has(fn) ? 'checked' : '';
         return `
                         <tr>
                             <td class="text-center">
-                                <input type="checkbox" class="form-check-input batch-file-checkbox" value="${fn}">
+                                <input type="checkbox" class="form-check-input batch-file-checkbox" value="${fn}" ${isChecked} onchange="toggleSingleBatchFile(this, '${fn}')">
                             </td>
                             <td class="fw-semibold text-secondary"><i class="fa-solid fa-file-pdf text-danger me-2"></i>${cleanName}</td>
                             <td class="text-center">
@@ -1669,15 +1690,51 @@ function changeBatchPage(pageTarget) {
     renderBatchFilesTable();
 }
 
-function toggleSelectAllBatch(masterObj) {
-    const checkboxes = document.querySelectorAll(".batch-file-checkbox");
-    checkboxes.forEach(cb => cb.checked = masterObj.checked);
+function selectAllBatchFiles(selectState) {
+    if (selectState) {
+        batchFilesDataset.forEach(fn => selectedBatchFiles.add(fn));
+    } else {
+        selectedBatchFiles.clear();
+    }
+    renderBatchFilesTable();
+}
+
+function toggleSelectAllPageBatch(masterObj) {
+    const totalRecords = batchFilesDataset.length;
+    const startIndex = (batchCurrentPage - 1) * batchRowsPerPage;
+    const endIndex = Math.min(startIndex + batchRowsPerPage, totalRecords);
+    const pagedData = batchFilesDataset.slice(startIndex, endIndex);
+
+    if (masterObj.checked) {
+        pagedData.forEach(fn => selectedBatchFiles.add(fn));
+    } else {
+        pagedData.forEach(fn => selectedBatchFiles.delete(fn));
+    }
+    renderBatchFilesTable();
+}
+
+function toggleSingleBatchFile(cb, filename) {
+    if (cb.checked) {
+        selectedBatchFiles.add(filename);
+    } else {
+        selectedBatchFiles.delete(filename);
+    }
+    const countEl = document.getElementById("batch_selected_count");
+    if (countEl) countEl.innerText = selectedBatchFiles.size;
+
+    const totalRecords = batchFilesDataset.length;
+    const startIndex = (batchCurrentPage - 1) * batchRowsPerPage;
+    const endIndex = Math.min(startIndex + batchRowsPerPage, totalRecords);
+    const pagedData = batchFilesDataset.slice(startIndex, endIndex);
+    const allOnPageSelected = pagedData.length > 0 && pagedData.every(fn => selectedBatchFiles.has(fn));
+    const masterObj = document.getElementById("batch_select_all");
+    if (masterObj) masterObj.checked = allOnPageSelected;
 }
 
 async function downloadSelectedBatchFiles() {
-    const checkedBoxes = document.querySelectorAll(".batch-file-checkbox:checked");
-    if (checkedBoxes.length === 0) {
-        showToast("warning", "Vui lòng tích chọn các văn bản cần tải về máy!");
+    const selectedList = Array.from(selectedBatchFiles);
+    if (selectedList.length === 0) {
+        showToast("warning", "Vui lòng chọn ít nhất 1 văn bản để tải về máy!");
         return;
     }
 
@@ -1685,11 +1742,11 @@ async function downloadSelectedBatchFiles() {
     const originalHtml = btn ? btn.innerHTML : null;
     if (btn) {
         btn.disabled = true;
-        btn.innerHTML = `<span class="spinner-border spinner-border-sm me-1"></span>Đang nén ZIP...`;
+        btn.innerHTML = `<span class="spinner-border spinner-border-sm me-1"></span>Đang nén ZIP (${selectedList.length} file)...`;
     }
 
     const formData = new FormData();
-    checkedBoxes.forEach(cb => formData.append("filenames", cb.value));
+    selectedList.forEach(fn => formData.append("filenames", fn));
 
     try {
         const res = await fetch(`${API_BASE}/pdf/download-batch-zip`, { method: "POST", body: formData });
